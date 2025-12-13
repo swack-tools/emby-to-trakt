@@ -125,8 +125,9 @@ class TestTraktConfig:
 
         config.set_trakt_credentials(
             client_id="client123",
-            access_token="access456",
-            refresh_token="refresh789",
+            client_secret="secret456",
+            access_token="access789",
+            refresh_token="refresh012",
             expires_at="2025-12-20T00:00:00",
         )
         config.save()
@@ -136,8 +137,9 @@ class TestTraktConfig:
         config2.load()
 
         assert config2.trakt_client_id == "client123"
-        assert config2.trakt_access_token == "access456"
-        assert config2.trakt_refresh_token == "refresh789"
+        assert config2.trakt_client_secret == "secret456"
+        assert config2.trakt_access_token == "access789"
+        assert config2.trakt_refresh_token == "refresh012"
         assert config2.trakt_expires_at == "2025-12-20T00:00:00"
 
     def test_trakt_configured(self, tmp_path):
@@ -148,8 +150,9 @@ class TestTraktConfig:
 
         config.set_trakt_credentials(
             client_id="client123",
-            access_token="access456",
-            refresh_token="refresh789",
+            client_secret="secret456",
+            access_token="access789",
+            refresh_token="refresh012",
             expires_at="2025-12-20T00:00:00",
         )
 

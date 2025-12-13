@@ -13,11 +13,12 @@ class TraktAuth:
 
     API_URL = "https://api.trakt.tv"
 
-    def __init__(self, client_id: str):
-        """Initialize with Trakt app client ID.
+    def __init__(self, client_id: str, client_secret: str = None):
+        """Initialize with Trakt app credentials.
 
         Args:
             client_id: The Trakt application client ID.
+            client_secret: The Trakt application client secret (required for token exchange).
 
         Raises:
             ValueError: If client_id is empty or None.
@@ -25,6 +26,7 @@ class TraktAuth:
         if not client_id:
             raise ValueError("client_id cannot be empty")
         self.client_id = client_id
+        self.client_secret = client_secret
 
     def _get_headers(self) -> dict:
         """Build request headers."""
@@ -76,12 +78,16 @@ class TraktAuth:
         url = f"{self.API_URL}/oauth/device/token"
 
         try:
+            payload = {
+                "code": device_code,
+                "client_id": self.client_id,
+            }
+            if self.client_secret:
+                payload["client_secret"] = self.client_secret
+
             response = requests.post(
                 url,
-                json={
-                    "code": device_code,
-                    "client_id": self.client_id,
-                },
+                json=payload,
                 headers=self._get_headers(),
                 timeout=30,
             )
@@ -89,17 +95,36 @@ class TraktAuth:
             raise TraktAuthError(f"Cannot connect to Trakt API: {e}")
 
         if response.status_code == 200:
-            return response.json()
+            try:
+                return response.json()
+            except requests.exceptions.JSONDecodeError:
+                raise TraktAuthError("Invalid response from Trakt API")
 
         if response.status_code == 400:
-            data = response.json()
-            error = data.get("error", "")
+            # Try to parse error, but handle empty responses
+            try:
+                data = response.json()
+                error = data.get("error", "")
+            except requests.exceptions.JSONDecodeError:
+                # Empty body, treat as pending
+                return None
 
             if error == "authorization_pending":
                 return None
 
             if error in ("access_denied", "expired_token"):
                 raise TraktAuthError(f"Authorization denied: {error}")
+
+        # 409 = already used, 410 = expired, 418 = denied
+        if response.status_code == 409:
+            raise TraktAuthError("Device code already used")
+        if response.status_code == 410:
+            raise TraktAuthError("Device code expired")
+        if response.status_code == 418:
+            raise TraktAuthError("User denied authorization")
+        if response.status_code == 429:
+            # Rate limited, treat as pending (will retry)
+            return None
 
         raise TraktAuthError(f"Token poll failed: {response.status_code}")
 
@@ -118,13 +143,17 @@ class TraktAuth:
         url = f"{self.API_URL}/oauth/token"
 
         try:
+            payload = {
+                "refresh_token": refresh_token,
+                "client_id": self.client_id,
+                "grant_type": "refresh_token",
+            }
+            if self.client_secret:
+                payload["client_secret"] = self.client_secret
+
             response = requests.post(
                 url,
-                json={
-                    "refresh_token": refresh_token,
-                    "client_id": self.client_id,
-                    "grant_type": "refresh_token",
-                },
+                json=payload,
                 headers=self._get_headers(),
                 timeout=30,
             )

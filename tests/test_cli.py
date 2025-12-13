@@ -82,7 +82,7 @@ class TestSetupCommand:
         assert (tmp_path / "config.yaml").exists()
 
     @responses.activate
-    def test_setup_invalid_credentials(self):
+    def test_setup_invalid_credentials(self, tmp_path):
         """Setup shows error for invalid credentials."""
         responses.add(
             responses.POST,
@@ -95,6 +95,7 @@ class TestSetupCommand:
             cli,
             ["setup"],
             input="https://emby.example.com\nbaduser\nbadpass\n",
+            env={"EMBY_SYNC_DATA_DIR": str(tmp_path)},
         )
 
         assert result.exit_code != 0
@@ -278,6 +279,88 @@ watched_items:
         assert result.exit_code == 0
         assert "1" in result.output  # Item count
 
+    def test_status_shows_trakt_status(self, tmp_path, monkeypatch):
+        """Status shows Trakt configuration status."""
+        monkeypatch.setenv("EMBY_SYNC_DATA_DIR", str(tmp_path))
+
+        # Create config with Trakt
+        config = Config(data_dir=tmp_path)
+        config.set_emby_credentials(
+            server_url="http://emby.local",
+            user_id="user1",
+            access_token="token1",
+            device_id="device1",
+        )
+        config.set_trakt_credentials(
+            client_id="client1",
+            client_secret="secret1",
+            access_token="access1",
+            refresh_token="refresh1",
+            expires_at="2025-12-20T00:00:00",
+        )
+        config.save()
+
+        # Create watched data
+        watched_content = """
+sync_metadata:
+  last_updated: "2025-12-12T14:30:00"
+watched_items:
+  - emby_id: "1"
+    title: "Movie 1"
+    item_type: "movie"
+    watched_date: "2025-12-01T00:00:00"
+    play_count: 1
+    is_fully_watched: true
+    completion_percentage: 100.0
+    playback_position_ticks: 0
+    runtime_ticks: 1000
+    raw_metadata: {}
+"""
+        (tmp_path / "watched.yaml").write_text(watched_content)
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["status"])
+
+        assert result.exit_code == 0
+        assert "trakt" in result.output.lower()
+
+    def test_status_shows_unmatched_count(self, tmp_path, monkeypatch):
+        """Status shows unmatched item count."""
+        monkeypatch.setenv("EMBY_SYNC_DATA_DIR", str(tmp_path))
+
+        # Create watched data
+        watched_content = """
+sync_metadata:
+  last_updated: "2025-12-12T14:30:00"
+watched_items:
+  - emby_id: "1"
+    title: "Movie 1"
+    item_type: "movie"
+    watched_date: "2025-12-01T00:00:00"
+    play_count: 1
+    is_fully_watched: true
+    completion_percentage: 100.0
+    playback_position_ticks: 0
+    runtime_ticks: 1000
+    raw_metadata: {}
+"""
+        (tmp_path / "watched.yaml").write_text(watched_content)
+
+        # Create unmatched.yaml
+        unmatched_content = """
+- title: "Unknown Movie"
+  item_type: movie
+  emby_id: "123"
+  reason: "No provider IDs"
+"""
+        (tmp_path / "unmatched.yaml").write_text(unmatched_content)
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["status"])
+
+        assert result.exit_code == 0
+        assert "unmatched" in result.output.lower()
+
 
 class TestValidateCommand:
     """Tests for validate command."""
@@ -325,6 +408,51 @@ sync:
         assert result.exit_code == 0
         assert "valid" in result.output.lower() or "success" in result.output.lower()
 
+    @responses.activate
+    def test_validate_checks_trakt_connection(self, tmp_path, monkeypatch):
+        """Validate checks Trakt connection when configured."""
+        monkeypatch.setenv("EMBY_SYNC_DATA_DIR", str(tmp_path))
+
+        # Create config with both Emby and Trakt
+        config = Config(data_dir=tmp_path)
+        config.set_emby_credentials(
+            server_url="https://emby.example.com",
+            user_id="user456",
+            access_token="token123",
+            device_id="device789",
+        )
+        config.set_trakt_credentials(
+            client_id="client1",
+            client_secret="secret1",
+            access_token="access1",
+            refresh_token="refresh1",
+            expires_at="2025-12-20T00:00:00",
+        )
+        config.save()
+
+        # Mock Emby connection
+        responses.add(
+            responses.GET,
+            "https://emby.example.com/System/Info",
+            json={"ServerName": "My Emby"},
+            status=200,
+        )
+
+        # Mock Trakt connection
+        responses.add(
+            responses.GET,
+            "https://api.trakt.tv/users/me",
+            json={"username": "testuser"},
+            status=200,
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["validate"])
+
+        assert result.exit_code == 0
+        assert "trakt" in result.output.lower()
+        assert "valid" in result.output.lower() or "connected" in result.output.lower()
+
 
 class TestTraktSetupCommand:
     """Test trakt-setup command."""
@@ -362,7 +490,12 @@ class TestTraktSetupCommand:
         )
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["trakt-setup"])
+        # Provide input: y (ready), client_id, client_secret
+        result = runner.invoke(
+            cli,
+            ["trakt-setup"],
+            input="y\ntest-client-id\ntest-client-secret\n",
+        )
 
         assert result.exit_code == 0
         assert "TESTCODE" in result.output
@@ -387,6 +520,7 @@ class TestPushCommand:
         )
         config.set_trakt_credentials(
             client_id="client1",
+            client_secret="secret1",
             access_token="access1",
             refresh_token="refresh1",
             expires_at="2025-12-20T00:00:00",
@@ -437,6 +571,7 @@ class TestPushCommand:
         )
         config.set_trakt_credentials(
             client_id="client1",
+            client_secret="secret1",
             access_token="access1",
             refresh_token="refresh1",
             expires_at="2025-12-20T00:00:00",
@@ -494,6 +629,7 @@ class TestPushCommand:
         )
         config.set_trakt_credentials(
             client_id="client1",
+            client_secret="secret1",
             access_token="access1",
             refresh_token="refresh1",
             expires_at="2025-12-20T00:00:00",
@@ -563,6 +699,7 @@ class TestPushCommand:
         )
         config.set_trakt_credentials(
             client_id="client1",
+            client_secret="secret1",
             access_token="access1",
             refresh_token="refresh1",
             expires_at="2025-12-20T00:00:00",
@@ -618,3 +755,118 @@ class TestPushCommand:
         result = runner.invoke(cli, ["push", "--content", "movies"])
 
         assert result.exit_code == 0
+
+
+class TestDownloadPushFlag:
+    """Test --push flag on download command."""
+
+    @responses.activate
+    def test_download_push_flag_syncs_after_download(self, tmp_path, monkeypatch):
+        """Download with --push runs push after download."""
+        monkeypatch.setenv("EMBY_SYNC_DATA_DIR", str(tmp_path))
+
+        # Create config with both Emby and Trakt
+        config = Config(data_dir=tmp_path)
+        config.set_emby_credentials(
+            server_url="https://emby.example.com",
+            user_id="user456",
+            access_token="token123",
+            device_id="device789",
+        )
+        config.set_trakt_credentials(
+            client_id="client1",
+            client_secret="secret1",
+            access_token="access1",
+            refresh_token="refresh1",
+            expires_at="2025-12-20T00:00:00",
+        )
+        config.save()
+
+        # Mock Emby API - return movie with provider ID
+        responses.add(
+            responses.GET,
+            "https://emby.example.com/Users/user456/Items",
+            json={
+                "Items": [
+                    {
+                        "Id": "movie1",
+                        "Name": "Test Movie",
+                        "Type": "Movie",
+                        "UserData": {
+                            "Played": True,
+                            "PlayCount": 1,
+                            "LastPlayedDate": "2025-12-01T20:00:00.0000000Z",
+                            "PlaybackPositionTicks": 0,
+                        },
+                        "RunTimeTicks": 7200000000000,
+                        "ProviderIds": {"Imdb": "tt0000001"},
+                    }
+                ],
+                "TotalRecordCount": 1,
+            },
+            status=200,
+        )
+
+        # Mock Trakt sync
+        responses.add(
+            responses.POST,
+            "https://api.trakt.tv/sync/history",
+            json={"added": {"movies": 1, "episodes": 0}},
+            status=201,
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["download", "--content", "movies", "--push"])
+
+        assert result.exit_code == 0
+        assert "Downloaded" in result.output
+        assert "Pushed" in result.output or "pushed" in result.output.lower()
+
+    @responses.activate
+    def test_download_push_flag_without_trakt_config(self, tmp_path, monkeypatch):
+        """Download with --push fails gracefully without Trakt config."""
+        monkeypatch.setenv("EMBY_SYNC_DATA_DIR", str(tmp_path))
+
+        # Create config with only Emby (no Trakt)
+        config_content = """
+emby:
+  server_url: https://emby.example.com
+  user_id: user456
+  access_token: token123
+  device_id: device789
+sync:
+  mode: full
+"""
+        (tmp_path / "config.yaml").write_text(config_content)
+
+        # Mock Emby API
+        responses.add(
+            responses.GET,
+            "https://emby.example.com/Users/user456/Items",
+            json={
+                "Items": [
+                    {
+                        "Id": "movie1",
+                        "Name": "Test Movie",
+                        "Type": "Movie",
+                        "UserData": {
+                            "Played": True,
+                            "PlayCount": 1,
+                            "LastPlayedDate": "2025-12-01T20:00:00.0000000Z",
+                            "PlaybackPositionTicks": 0,
+                        },
+                        "RunTimeTicks": 7200000000000,
+                        "ProviderIds": {},
+                    }
+                ],
+                "TotalRecordCount": 1,
+            },
+            status=200,
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["download", "--content", "movies", "--push"])
+
+        # Should download but warn about push
+        assert "Downloaded" in result.output
+        assert "trakt" in result.output.lower()

@@ -123,6 +123,90 @@ class TraktClient:
             "ids": ids,
         }
 
+    def get_watched_movies(self) -> list:
+        """Get all watched movies from Trakt."""
+        url = f"{self.API_URL}/sync/watched/movies"
+
+        try:
+            response = requests.get(
+                url,
+                headers=self._get_headers(),
+                timeout=60,
+            )
+
+            if response.status_code != 200:
+                raise TraktError(f"Failed to get watched movies: {response.status_code}")
+
+            return response.json()
+        except requests.RequestException as e:
+            raise TraktError(f"Network error: {e}")
+
+    def get_watched_shows(self) -> list:
+        """Get all watched shows from Trakt."""
+        url = f"{self.API_URL}/sync/watched/shows"
+
+        try:
+            response = requests.get(
+                url,
+                headers=self._get_headers(),
+                timeout=60,
+            )
+
+            if response.status_code != 200:
+                raise TraktError(f"Failed to get watched shows: {response.status_code}")
+
+            return response.json()
+        except requests.RequestException as e:
+            raise TraktError(f"Network error: {e}")
+
+    def remove_from_history(self, movies: list = None, shows: list = None) -> dict:
+        """Remove items from Trakt history.
+
+        Args:
+            movies: List of movie objects with 'ids' field
+            shows: List of show objects with 'ids' field
+
+        Returns dict with deleted counts.
+        """
+        payload = {}
+        if movies:
+            payload["movies"] = [{"ids": m["movie"]["ids"]} for m in movies]
+        if shows:
+            payload["shows"] = [{"ids": s["show"]["ids"]} for s in shows]
+
+        if not payload:
+            return {"deleted": {"movies": 0, "episodes": 0}}
+
+        url = f"{self.API_URL}/sync/history/remove"
+
+        try:
+            response = requests.post(
+                url,
+                json=payload,
+                headers=self._get_headers(),
+                timeout=120,
+            )
+
+            if response.status_code not in (200, 201):
+                raise TraktError(f"Remove failed: {response.status_code}")
+
+            return response.json()
+        except requests.RequestException as e:
+            raise TraktError(f"Network error: {e}")
+
+    def clear_all_history(self) -> dict:
+        """Remove ALL watch history from Trakt.
+
+        Returns dict with deleted counts.
+        """
+        movies = self.get_watched_movies()
+        shows = self.get_watched_shows()
+
+        if not movies and not shows:
+            return {"deleted": {"movies": 0, "episodes": 0}}
+
+        return self.remove_from_history(movies=movies, shows=shows)
+
     def sync_ratings(self, items: List[WatchedItem]) -> dict:
         """Sync ratings to Trakt.
 

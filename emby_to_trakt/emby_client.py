@@ -144,7 +144,7 @@ class EmbyClient:
             params = {
                 "IncludeItemTypes": item_types,
                 "Recursive": "true",
-                "Fields": "ProviderIds,UserData,RunTimeTicks,Path",
+                "Fields": "ProviderIds,UserDataPlayCount,UserDataLastPlayedDate,RunTimeTicks,Path,DateLastSaved,DateCreated",
                 "Filters": filter_value,
             }
 
@@ -179,19 +179,45 @@ class EmbyClient:
 
         return list(all_items.values())
 
+    def _parse_emby_date(self, date_string: str) -> Optional[datetime]:
+        """Parse Emby's timestamp format."""
+        if not date_string:
+            return None
+        try:
+            # Handle Emby's timestamp format (e.g., "2025-12-01T20:00:00.0000000Z")
+            return datetime.fromisoformat(
+                date_string.replace("Z", "+00:00").split(".")[0]
+            )
+        except (ValueError, AttributeError):
+            return None
+
     def _parse_item(self, raw: dict) -> Optional[WatchedItem]:
         """Parse Emby API item into WatchedItem."""
         user_data = raw.get("UserData", {})
         provider_ids = raw.get("ProviderIds", {})
 
-        # Parse watched date
+        # Parse watched date - try multiple fields in order of preference
+        watched_date = None
+
+        # 1. Try LastPlayedDate (actual watch time)
         last_played = user_data.get("LastPlayedDate")
         if last_played:
-            # Handle Emby's timestamp format
-            watched_date = datetime.fromisoformat(
-                last_played.replace("Z", "+00:00").split(".")[0]
-            )
-        else:
+            watched_date = self._parse_emby_date(last_played)
+
+        # 2. Try DateLastSaved (when marked as watched)
+        if not watched_date:
+            date_saved = raw.get("DateLastSaved")
+            if date_saved:
+                watched_date = self._parse_emby_date(date_saved)
+
+        # 3. Try DateCreated as last resort
+        if not watched_date:
+            date_created = raw.get("DateCreated")
+            if date_created:
+                watched_date = self._parse_emby_date(date_created)
+
+        # 4. Fall back to now if nothing else available
+        if not watched_date:
             watched_date = datetime.now()
 
         # Calculate completion percentage

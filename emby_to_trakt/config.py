@@ -41,6 +41,7 @@ class Config:
 
         # Trakt credentials
         self.trakt_client_id: Optional[str] = None
+        self.trakt_client_secret: Optional[str] = None
         self.trakt_access_token: Optional[str] = None
         self.trakt_refresh_token: Optional[str] = None
         self.trakt_expires_at: Optional[str] = None
@@ -75,12 +76,14 @@ class Config:
     def set_trakt_credentials(
         self,
         client_id: str,
+        client_secret: str,
         access_token: str,
         refresh_token: str,
         expires_at: str,
     ) -> None:
         """Set Trakt credentials."""
         self.trakt_client_id = client_id
+        self.trakt_client_secret = client_secret
         self.trakt_access_token = access_token
         self.trakt_refresh_token = refresh_token
         self.trakt_expires_at = expires_at
@@ -107,6 +110,7 @@ class Config:
             },
             "trakt": {
                 "client_id": self.trakt_client_id,
+                "client_secret": self.trakt_client_secret,
                 "access_token": self.trakt_access_token,
                 "refresh_token": self.trakt_refresh_token,
                 "expires_at": self.trakt_expires_at,
@@ -145,6 +149,7 @@ class Config:
 
         trakt = data.get("trakt", {})
         self.trakt_client_id = trakt.get("client_id")
+        self.trakt_client_secret = trakt.get("client_secret")
         self.trakt_access_token = trakt.get("access_token")
         self.trakt_refresh_token = trakt.get("refresh_token")
         self.trakt_expires_at = trakt.get("expires_at")
