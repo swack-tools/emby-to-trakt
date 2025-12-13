@@ -19,9 +19,9 @@ build/
 *.swp
 *.swo
 
-# Project
-data/
-docs/
+# Project data (keep directory, ignore user data)
+data/config.yaml
+data/watched.yaml
 
 # Testing
 .pytest_cache/

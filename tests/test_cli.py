@@ -1,5 +1,7 @@
 """Tests for CLI commands."""
 
+from importlib.metadata import version
+
 import responses
 import yaml
 from click.testing import CliRunner
@@ -21,7 +23,7 @@ def test_cli_version():
     runner = CliRunner()
     result = runner.invoke(cli, ["--version"])
     assert result.exit_code == 0
-    assert "0.1.0" in result.output
+    assert version("emby-to-trakt") in result.output
 
 
 def test_cli_setup_command_exists():
