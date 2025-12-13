@@ -25,7 +25,7 @@ class EmbyClient:
     """Client for Emby REST API."""
 
     CLIENT_NAME = "emby-sync-cli"
-    CLIENT_VERSION = "0.1.0"
+    CLIENT_VERSION = "1.0.0"
 
     def __init__(
         self,

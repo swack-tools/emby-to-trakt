@@ -1,6 +1,6 @@
 [project]
 name = "emby-to-trakt"
-version = "0.1.0"
+version = "1.0.0"
 description = "Sync watched history from Emby to Trakt"
 readme = "README.md"
 requires-python = ">=3.11"
