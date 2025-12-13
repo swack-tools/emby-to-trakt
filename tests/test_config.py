@@ -114,3 +114,43 @@ def test_config_last_sync(tmp_path):
     config2 = Config(data_dir=tmp_path)
     config2.load()
     assert config2.last_sync == now
+
+
+class TestTraktConfig:
+    """Test Trakt configuration."""
+
+    def test_set_trakt_credentials(self, tmp_path):
+        """Set Trakt credentials."""
+        config = Config(data_dir=tmp_path)
+
+        config.set_trakt_credentials(
+            client_id="client123",
+            access_token="access456",
+            refresh_token="refresh789",
+            expires_at="2025-12-20T00:00:00",
+        )
+        config.save()
+
+        # Reload and verify
+        config2 = Config(data_dir=tmp_path)
+        config2.load()
+
+        assert config2.trakt_client_id == "client123"
+        assert config2.trakt_access_token == "access456"
+        assert config2.trakt_refresh_token == "refresh789"
+        assert config2.trakt_expires_at == "2025-12-20T00:00:00"
+
+    def test_trakt_configured(self, tmp_path):
+        """Check if Trakt is configured."""
+        config = Config(data_dir=tmp_path)
+
+        assert config.trakt_configured is False
+
+        config.set_trakt_credentials(
+            client_id="client123",
+            access_token="access456",
+            refresh_token="refresh789",
+            expires_at="2025-12-20T00:00:00",
+        )
+
+        assert config.trakt_configured is True

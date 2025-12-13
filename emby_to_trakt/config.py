@@ -39,6 +39,12 @@ class Config:
         self.sync_mode: str = "incremental"
         self.last_sync: Optional[datetime] = None
 
+        # Trakt credentials
+        self.trakt_client_id: Optional[str] = None
+        self.trakt_access_token: Optional[str] = None
+        self.trakt_refresh_token: Optional[str] = None
+        self.trakt_expires_at: Optional[str] = None
+
     def exists(self) -> bool:
         """Check if config file exists."""
         return self.config_path.exists()
@@ -66,6 +72,24 @@ class Config:
         """Set last sync timestamp."""
         self.last_sync = timestamp
 
+    def set_trakt_credentials(
+        self,
+        client_id: str,
+        access_token: str,
+        refresh_token: str,
+        expires_at: str,
+    ) -> None:
+        """Set Trakt credentials."""
+        self.trakt_client_id = client_id
+        self.trakt_access_token = access_token
+        self.trakt_refresh_token = refresh_token
+        self.trakt_expires_at = expires_at
+
+    @property
+    def trakt_configured(self) -> bool:
+        """Check if Trakt is configured."""
+        return bool(self.trakt_access_token and self.trakt_client_id)
+
     def save(self) -> None:
         """Save configuration to YAML file."""
         data = {
@@ -80,6 +104,12 @@ class Config:
                 "last_sync": (
                     self.last_sync.isoformat() if self.last_sync else None
                 ),
+            },
+            "trakt": {
+                "client_id": self.trakt_client_id,
+                "access_token": self.trakt_access_token,
+                "refresh_token": self.trakt_refresh_token,
+                "expires_at": self.trakt_expires_at,
             },
         }
 
@@ -112,3 +142,9 @@ class Config:
         last_sync_str = sync.get("last_sync")
         if last_sync_str:
             self.last_sync = datetime.fromisoformat(last_sync_str)
+
+        trakt = data.get("trakt", {})
+        self.trakt_client_id = trakt.get("client_id")
+        self.trakt_access_token = trakt.get("access_token")
+        self.trakt_refresh_token = trakt.get("refresh_token")
+        self.trakt_expires_at = trakt.get("expires_at")
