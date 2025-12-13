@@ -14,7 +14,16 @@ class TraktAuth:
     API_URL = "https://api.trakt.tv"
 
     def __init__(self, client_id: str):
-        """Initialize with Trakt app client ID."""
+        """Initialize with Trakt app client ID.
+
+        Args:
+            client_id: The Trakt application client ID.
+
+        Raises:
+            ValueError: If client_id is empty or None.
+        """
+        if not client_id:
+            raise ValueError("client_id cannot be empty")
         self.client_id = client_id
 
     def _get_headers(self) -> dict:
@@ -28,16 +37,23 @@ class TraktAuth:
     def request_device_code(self) -> dict:
         """Request device code for user authorization.
 
-        Returns dict with device_code, user_code, verification_url, interval.
+        Returns:
+            dict: Contains device_code, user_code, verification_url, expires_in, and interval.
+
+        Raises:
+            TraktAuthError: If the API request fails or returns a non-200 status.
         """
         url = f"{self.API_URL}/oauth/device/code"
 
-        response = requests.post(
-            url,
-            json={"client_id": self.client_id},
-            headers=self._get_headers(),
-            timeout=30,
-        )
+        try:
+            response = requests.post(
+                url,
+                json={"client_id": self.client_id},
+                headers=self._get_headers(),
+                timeout=30,
+            )
+        except requests.RequestException as e:
+            raise TraktAuthError(f"Cannot connect to Trakt API: {e}")
 
         if response.status_code != 200:
             raise TraktAuthError(f"Failed to get device code: {response.status_code}")
