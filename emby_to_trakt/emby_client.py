@@ -1,9 +1,12 @@
 """Emby API client."""
 
 import uuid
-from typing import Optional
+from datetime import datetime
+from typing import List, Optional
 
 import requests
+
+from emby_to_trakt.models import WatchedItem
 
 
 class EmbyAuthError(Exception):
@@ -101,3 +104,117 @@ class EmbyClient:
             return response.status_code == 200
         except requests.RequestException:
             return False
+
+    def get_watched_items(
+        self,
+        content_type: str,
+        since: Optional[datetime] = None,
+        include_partial: bool = True,
+    ) -> List[WatchedItem]:
+        """Fetch watched items from Emby.
+
+        Args:
+            content_type: "movies" or "episodes"
+            since: Only fetch items watched after this date (incremental sync)
+            include_partial: Include partially watched items
+
+        Returns:
+            List of WatchedItem objects
+        """
+        if content_type == "movies":
+            item_types = "Movie"
+        elif content_type == "episodes":
+            item_types = "Episode"
+        else:
+            raise ValueError(f"Invalid content type: {content_type}")
+
+        params = {
+            "IncludeItemTypes": item_types,
+            "Recursive": "true",
+            "Fields": "ProviderIds,UserData,RunTimeTicks,Path",
+        }
+
+        if include_partial:
+            # Get items with any play progress
+            params["Filters"] = "IsPlayed,IsResumable"
+        else:
+            params["Filters"] = "IsPlayed"
+
+        if since:
+            params["MinDateLastSaved"] = since.isoformat()
+
+        url = f"{self.server_url}/Users/{self.user_id}/Items"
+
+        try:
+            response = requests.get(
+                url,
+                params=params,
+                headers=self._get_headers(),
+                timeout=60,
+            )
+        except requests.RequestException as e:
+            raise EmbyConnectionError(f"Cannot connect to Emby server: {e}")
+
+        if response.status_code == 401:
+            raise EmbyAuthError("Access token expired or invalid")
+        if response.status_code != 200:
+            raise EmbyConnectionError(
+                f"Emby server error: {response.status_code}"
+            )
+
+        data = response.json()
+        items = []
+
+        for raw_item in data.get("Items", []):
+            item = self._parse_item(raw_item)
+            if item:
+                items.append(item)
+
+        return items
+
+    def _parse_item(self, raw: dict) -> Optional[WatchedItem]:
+        """Parse Emby API item into WatchedItem."""
+        user_data = raw.get("UserData", {})
+        provider_ids = raw.get("ProviderIds", {})
+
+        # Parse watched date
+        last_played = user_data.get("LastPlayedDate")
+        if last_played:
+            # Handle Emby's timestamp format
+            watched_date = datetime.fromisoformat(
+                last_played.replace("Z", "+00:00").split(".")[0]
+            )
+        else:
+            watched_date = datetime.now()
+
+        # Calculate completion percentage
+        runtime_ticks = raw.get("RunTimeTicks", 0)
+        position_ticks = user_data.get("PlaybackPositionTicks", 0)
+        if runtime_ticks > 0:
+            completion = (position_ticks / runtime_ticks) * 100
+        else:
+            completion = 100.0 if user_data.get("Played") else 0.0
+
+        item_type = raw.get("Type", "").lower()
+        if item_type not in ("movie", "episode"):
+            return None
+
+        return WatchedItem(
+            emby_id=raw.get("Id", ""),
+            title=raw.get("Name", ""),
+            item_type=item_type,
+            watched_date=watched_date,
+            play_count=user_data.get("PlayCount", 0),
+            is_fully_watched=user_data.get("Played", False),
+            completion_percentage=round(completion, 2),
+            playback_position_ticks=position_ticks,
+            runtime_ticks=runtime_ticks,
+            imdb_id=provider_ids.get("Imdb"),
+            tmdb_id=provider_ids.get("Tmdb"),
+            tvdb_id=provider_ids.get("Tvdb"),
+            user_rating=user_data.get("Rating"),
+            series_name=raw.get("SeriesName") if item_type == "episode" else None,
+            season_number=raw.get("ParentIndexNumber") if item_type == "episode" else None,
+            episode_number=raw.get("IndexNumber") if item_type == "episode" else None,
+            raw_metadata=raw,
+        )
