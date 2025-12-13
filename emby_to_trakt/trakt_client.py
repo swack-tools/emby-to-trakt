@@ -122,3 +122,55 @@ class TraktClient:
             "watched_at": item.watched_date.isoformat() + "Z",
             "ids": ids,
         }
+
+    def sync_ratings(self, items: List[WatchedItem]) -> dict:
+        """Sync ratings to Trakt.
+
+        Returns dict with added counts.
+        """
+        movies = []
+        episodes = []
+
+        for item in items:
+            if item.user_rating is None:
+                continue
+
+            # Trakt uses 1-10 scale
+            rating = min(10, max(1, int(item.user_rating)))
+
+            if item.item_type == "movie":
+                movie_data = self._build_movie_data(item)
+                if movie_data:
+                    movie_data["rating"] = rating
+                    movies.append(movie_data)
+            elif item.item_type == "episode":
+                episode_data = self._build_episode_data(item)
+                if episode_data:
+                    episode_data["rating"] = rating
+                    episodes.append(episode_data)
+
+        if not movies and not episodes:
+            return {"added": {"movies": 0, "episodes": 0}}
+
+        payload = {}
+        if movies:
+            payload["movies"] = movies
+        if episodes:
+            payload["episodes"] = episodes
+
+        url = f"{self.API_URL}/sync/ratings"
+
+        try:
+            response = requests.post(
+                url,
+                json=payload,
+                headers=self._get_headers(),
+                timeout=60,
+            )
+
+            if response.status_code not in (200, 201):
+                raise TraktError(f"Ratings sync failed: {response.status_code}")
+
+            return response.json()
+        except requests.RequestException as e:
+            raise TraktError(f"Network error during ratings sync: {e}")

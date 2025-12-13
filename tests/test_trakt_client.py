@@ -320,3 +320,180 @@ class TestSyncHistory:
             assert False, "Should have raised TraktError"
         except TraktError as e:
             assert "400" in str(e) or "sync failed" in str(e).lower()
+
+
+class TestSyncRatings:
+    """Test syncing ratings."""
+
+    @responses.activate
+    def test_sync_ratings_success(self):
+        """Sync ratings to Trakt."""
+        responses.add(
+            responses.POST,
+            "https://api.trakt.tv/sync/ratings",
+            json={"added": {"movies": 1, "episodes": 0}},
+            status=201,
+        )
+
+        client = TraktClient(
+            client_id="test-client",
+            access_token="test-token",
+        )
+
+        items = [
+            WatchedItem(
+                emby_id="1",
+                title="Movie 1",
+                item_type="movie",
+                watched_date=datetime(2025, 12, 1),
+                play_count=1,
+                is_fully_watched=True,
+                completion_percentage=100.0,
+                playback_position_ticks=0,
+                runtime_ticks=0,
+                imdb_id="tt1234567",
+                user_rating=8.0,
+            ),
+        ]
+
+        result = client.sync_ratings(items)
+
+        assert result["added"]["movies"] == 1
+
+    def test_sync_ratings_skips_unrated(self):
+        """Sync ratings skips items without ratings."""
+        client = TraktClient(
+            client_id="test-client",
+            access_token="test-token",
+        )
+
+        items = [
+            WatchedItem(
+                emby_id="1",
+                title="Movie 1",
+                item_type="movie",
+                watched_date=datetime(2025, 12, 1),
+                play_count=1,
+                is_fully_watched=True,
+                completion_percentage=100.0,
+                playback_position_ticks=0,
+                runtime_ticks=0,
+                imdb_id="tt1234567",
+                user_rating=None,
+            ),
+        ]
+
+        result = client.sync_ratings(items)
+
+        assert result["added"]["movies"] == 0
+
+    @responses.activate
+    def test_sync_ratings_episodes(self):
+        """Sync episode ratings to Trakt."""
+        responses.add(
+            responses.POST,
+            "https://api.trakt.tv/sync/ratings",
+            json={"added": {"movies": 0, "episodes": 1}},
+            status=201,
+        )
+
+        client = TraktClient(
+            client_id="test-client",
+            access_token="test-token",
+        )
+
+        items = [
+            WatchedItem(
+                emby_id="1",
+                title="Episode 1",
+                item_type="episode",
+                watched_date=datetime(2025, 12, 1),
+                play_count=1,
+                is_fully_watched=True,
+                completion_percentage=100.0,
+                playback_position_ticks=0,
+                runtime_ticks=0,
+                tvdb_id="123",
+                series_name="Test Show",
+                season_number=1,
+                episode_number=1,
+                user_rating=9.0,
+            ),
+        ]
+
+        result = client.sync_ratings(items)
+
+        assert result["added"]["episodes"] == 1
+
+    @responses.activate
+    def test_sync_ratings_network_error(self):
+        """Sync ratings handles network errors."""
+        responses.add(
+            responses.POST,
+            "https://api.trakt.tv/sync/ratings",
+            body=requests.exceptions.ConnectionError("Network error"),
+        )
+
+        client = TraktClient(
+            client_id="test-client",
+            access_token="test-token",
+        )
+
+        items = [
+            WatchedItem(
+                emby_id="1",
+                title="Movie 1",
+                item_type="movie",
+                watched_date=datetime(2025, 12, 1),
+                play_count=1,
+                is_fully_watched=True,
+                completion_percentage=100.0,
+                playback_position_ticks=0,
+                runtime_ticks=0,
+                imdb_id="tt1234567",
+                user_rating=7.0,
+            ),
+        ]
+
+        try:
+            client.sync_ratings(items)
+            assert False, "Should have raised TraktError"
+        except TraktError as e:
+            assert "network" in str(e).lower() or "connection" in str(e).lower()
+
+    @responses.activate
+    def test_sync_ratings_api_error(self):
+        """Sync ratings handles API errors."""
+        responses.add(
+            responses.POST,
+            "https://api.trakt.tv/sync/ratings",
+            json={"error": "invalid_request"},
+            status=400,
+        )
+
+        client = TraktClient(
+            client_id="test-client",
+            access_token="test-token",
+        )
+
+        items = [
+            WatchedItem(
+                emby_id="1",
+                title="Movie 1",
+                item_type="movie",
+                watched_date=datetime(2025, 12, 1),
+                play_count=1,
+                is_fully_watched=True,
+                completion_percentage=100.0,
+                playback_position_ticks=0,
+                runtime_ticks=0,
+                imdb_id="tt1234567",
+                user_rating=8.0,
+            ),
+        ]
+
+        try:
+            client.sync_ratings(items)
+            assert False, "Should have raised TraktError"
+        except TraktError as e:
+            assert "400" in str(e) or "ratings sync failed" in str(e).lower()
