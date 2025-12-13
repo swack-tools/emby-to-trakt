@@ -248,7 +248,9 @@ class TestStatusCommand:
             env={"EMBY_SYNC_DATA_DIR": str(tmp_path)},
         )
 
-        assert "No watched data" in result.output or "not found" in result.output.lower()
+        assert (
+            "No watched data" in result.output or "not found" in result.output.lower()
+        )
 
     def test_status_shows_counts(self, tmp_path):
         """Status displays item counts."""
@@ -684,7 +686,10 @@ class TestPushCommand:
         result = runner.invoke(cli, ["push"])
 
         assert result.exit_code != 0
-        assert "not configured" in result.output.lower() or "not found" in result.output.lower()
+        assert (
+            "not configured" in result.output.lower()
+            or "not found" in result.output.lower()
+        )
 
     @responses.activate
     def test_push_content_filter_movies(self, tmp_path, monkeypatch):

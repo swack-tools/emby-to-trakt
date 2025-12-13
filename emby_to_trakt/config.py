@@ -104,9 +104,7 @@ class Config:
             },
             "sync": {
                 "mode": self.sync_mode,
-                "last_sync": (
-                    self.last_sync.isoformat() if self.last_sync else None
-                ),
+                "last_sync": (self.last_sync.isoformat() if self.last_sync else None),
             },
             "trakt": {
                 "client_id": self.trakt_client_id,

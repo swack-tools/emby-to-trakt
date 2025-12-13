@@ -51,10 +51,7 @@ class DataStore:
         if not data or "watched_items" not in data:
             return []
 
-        return [
-            WatchedItem.from_dict(item_data)
-            for item_data in data["watched_items"]
-        ]
+        return [WatchedItem.from_dict(item_data) for item_data in data["watched_items"]]
 
     def get_last_sync_time(self) -> Optional[datetime]:
         """Get timestamp of last sync."""

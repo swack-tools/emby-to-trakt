@@ -22,6 +22,7 @@ build/
 # Project data (keep directory, ignore user data)
 data/config.yaml
 data/watched.yaml
+docs/
 
 # Testing
 .pytest_cache/

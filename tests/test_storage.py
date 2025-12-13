@@ -1,7 +1,6 @@
 """Tests for YAML storage layer."""
 
 from datetime import datetime
-from pathlib import Path
 
 import pytest
 import yaml

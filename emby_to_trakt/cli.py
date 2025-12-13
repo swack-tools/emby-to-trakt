@@ -21,7 +21,6 @@ from emby_to_trakt.unmatched import UnmatchedLogger
 console = Console()
 
 
-
 def get_data_dir() -> Path:
     """Get data directory from env or default."""
     env_dir = os.environ.get("EMBY_SYNC_DATA_DIR")
@@ -46,8 +45,7 @@ def setup():
     # Warn if config exists
     if config.exists():
         console.print(
-            "[yellow]Configuration already exists at:[/yellow] "
-            f"{config.config_path}"
+            f"[yellow]Configuration already exists at:[/yellow] {config.config_path}"
         )
         if not click.confirm("Overwrite existing configuration?"):
             console.print("[dim]Setup cancelled.[/dim]")
@@ -105,9 +103,7 @@ def trakt_setup():
             existing_client_id = config.trakt_client_id
             existing_client_secret = config.trakt_client_secret
             if config.trakt_configured:
-                console.print(
-                    "[yellow]Trakt already configured.[/yellow]"
-                )
+                console.print("[yellow]Trakt already configured.[/yellow]")
                 if not click.confirm("Reconfigure?"):
                     return
         except ConfigError:
@@ -118,14 +114,20 @@ def trakt_setup():
     # Check if we need API credentials
     if not existing_client_id:
         console.print("[bold]Step 1: Create a Trakt API Application[/bold]\n")
-        console.print("You need to create a Trakt API application to get your credentials.\n")
-        console.print("1. Go to: [bold cyan]https://trakt.tv/oauth/applications[/bold cyan]")
+        console.print(
+            "You need to create a Trakt API application to get your credentials.\n"
+        )
+        console.print(
+            "1. Go to: [bold cyan]https://trakt.tv/oauth/applications[/bold cyan]"
+        )
         console.print("2. Click [bold]New Application[/bold]")
         console.print("3. Fill in:")
         console.print("   - Name: [dim]emby-to-trakt[/dim] (or any name)")
         console.print("   - Redirect URI: [dim]urn:ietf:wg:oauth:2.0:oob[/dim]")
         console.print("4. Click [bold]Save App[/bold]")
-        console.print("5. Copy your [bold]Client ID[/bold] and [bold]Client Secret[/bold]\n")
+        console.print(
+            "5. Copy your [bold]Client ID[/bold] and [bold]Client Secret[/bold]\n"
+        )
 
         if not click.confirm("Ready to continue?"):
             console.print("[dim]Setup cancelled.[/dim]")
@@ -135,7 +137,7 @@ def trakt_setup():
         client_id = click.prompt("Enter your Trakt Client ID", type=str).strip()
         client_secret = click.prompt("Enter your Trakt Client Secret", type=str).strip()
     else:
-        console.print(f"[dim]Using existing Trakt API credentials[/dim]\n")
+        console.print("[dim]Using existing Trakt API credentials[/dim]\n")
         client_id = existing_client_id
         client_secret = existing_client_secret
 
@@ -147,8 +149,12 @@ def trakt_setup():
         # Request device code
         device_data = auth.request_device_code()
 
-        console.print(f"Visit: [bold cyan]{device_data['verification_url']}[/bold cyan]")
-        console.print(f"Enter code: [bold green]{device_data['user_code']}[/bold green]")
+        console.print(
+            f"Visit: [bold cyan]{device_data['verification_url']}[/bold cyan]"
+        )
+        console.print(
+            f"Enter code: [bold green]{device_data['user_code']}[/bold green]"
+        )
         console.print("\n[dim]Waiting for authorization...[/dim]")
 
         # Poll for token
@@ -266,7 +272,9 @@ def download(mode, content, verbose, debug, push):
                     include_partial=True,
                 )
                 all_items.extend(items)
-                progress.update(task, description=f"Fetched {len(items)} {content_type}")
+                progress.update(
+                    task, description=f"Fetched {len(items)} {content_type}"
+                )
             except (EmbyAuthError, EmbyConnectionError) as e:
                 console.print(f"[red]Error:[/red] {e}")
                 raise SystemExit(2)
@@ -337,12 +345,14 @@ def download(mode, content, verbose, debug, push):
             added_movies = result.get("added", {}).get("movies", 0)
             added_episodes = result.get("added", {}).get("episodes", 0)
 
-            console.print(f"\n[green]✓ Pushed to Trakt[/green]")
+            console.print("\n[green]✓ Pushed to Trakt[/green]")
             console.print(f"  Movies: {added_movies}")
             console.print(f"  Episodes: {added_episodes}")
 
             if unmatched_logger.count() > 0:
-                console.print(f"  Unmatched: {unmatched_logger.count()} (see data/unmatched.yaml)")
+                console.print(
+                    f"  Unmatched: {unmatched_logger.count()} (see data/unmatched.yaml)"
+                )
 
         except TraktError as e:
             console.print(f"\n[red]Push failed:[/red] {e}")
@@ -388,6 +398,7 @@ def status():
     unmatched_path = data_dir / "unmatched.yaml"
     if unmatched_path.exists():
         import yaml
+
         try:
             with open(unmatched_path) as f:
                 unmatched_data = yaml.safe_load(f)
@@ -407,9 +418,9 @@ def status():
 
             # Trakt status
             if config.trakt_configured:
-                console.print(f"[dim]Trakt: Connected[/dim]")
+                console.print("[dim]Trakt: Connected[/dim]")
             else:
-                console.print(f"[dim]Trakt: Not configured[/dim]")
+                console.print("[dim]Trakt: Not configured[/dim]")
         except ConfigError:
             pass
 
@@ -477,7 +488,7 @@ def push(mode, content, dry_run, verbose):
     # Dry run output
     if dry_run:
         console.print("[bold]Dry run - no changes will be made[/bold]\n")
-        console.print(f"Would sync to Trakt:")
+        console.print("Would sync to Trakt:")
         console.print(f"  Movies: {len(movies)}")
         console.print(f"  Episodes: {len(episodes)}")
         console.print(f"  Unmatched: {unmatched_logger.count()}")
@@ -508,12 +519,14 @@ def push(mode, content, dry_run, verbose):
         added_movies = result.get("added", {}).get("movies", 0)
         added_episodes = result.get("added", {}).get("episodes", 0)
 
-        console.print(f"\n[green]✓ Pushed to Trakt[/green]")
+        console.print("\n[green]✓ Pushed to Trakt[/green]")
         console.print(f"  Movies: {added_movies}")
         console.print(f"  Episodes: {added_episodes}")
 
         if unmatched_logger.count() > 0:
-            console.print(f"  Unmatched: {unmatched_logger.count()} (see data/unmatched.yaml)")
+            console.print(
+                f"  Unmatched: {unmatched_logger.count()} (see data/unmatched.yaml)"
+            )
 
     except TraktError as e:
         console.print(f"[red]Sync failed:[/red] {e}")
@@ -544,7 +557,9 @@ def trakt_clear(yes):
         raise SystemExit(1)
 
     # Warning and confirmation
-    console.print("\n[bold red]WARNING: This will delete ALL watch history from Trakt![/bold red]")
+    console.print(
+        "\n[bold red]WARNING: This will delete ALL watch history from Trakt![/bold red]"
+    )
     console.print("This includes all watched movies and TV episodes.\n")
 
     if not yes:
@@ -570,7 +585,9 @@ def trakt_clear(yes):
             movies = client.get_watched_movies()
             shows = client.get_watched_shows()
 
-            progress.update(task, description=f"Found {len(movies)} movies, {len(shows)} shows")
+            progress.update(
+                task, description=f"Found {len(movies)} movies, {len(shows)} shows"
+            )
 
             if not movies and not shows:
                 console.print("\n[yellow]No watch history to clear.[/yellow]")
@@ -585,7 +602,7 @@ def trakt_clear(yes):
         deleted_movies = result.get("deleted", {}).get("movies", 0)
         deleted_episodes = result.get("deleted", {}).get("episodes", 0)
 
-        console.print(f"\n[green]✓ Trakt history cleared[/green]")
+        console.print("\n[green]✓ Trakt history cleared[/green]")
         console.print(f"  Deleted movies: {deleted_movies}")
         console.print(f"  Deleted episodes: {deleted_episodes}")
 
@@ -630,7 +647,9 @@ def validate():
         console.print("[green]✓ Emby connection valid![/green]")
     else:
         console.print("[red]✗ Emby connection failed.[/red]")
-        console.print("Your token may have expired. Run [bold]emby-sync setup[/bold] to re-authenticate.")
+        console.print(
+            "Your token may have expired. Run [bold]emby-sync setup[/bold] to re-authenticate."
+        )
         raise SystemExit(2)
 
     # Test Trakt connection if configured
@@ -646,7 +665,9 @@ def validate():
             console.print("[green]✓ Trakt connection valid![/green]")
         else:
             console.print("[red]✗ Trakt connection failed.[/red]")
-            console.print("Your token may have expired. Run [bold]emby-sync trakt-setup[/bold] to re-authenticate.")
+            console.print(
+                "Your token may have expired. Run [bold]emby-sync trakt-setup[/bold] to re-authenticate."
+            )
             raise SystemExit(2)
     else:
         console.print("\n[dim]Trakt: Not configured[/dim]")

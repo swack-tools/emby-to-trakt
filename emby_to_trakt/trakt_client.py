@@ -1,13 +1,14 @@
 """Trakt API client for syncing watch history."""
 
 import requests
-from typing import List, Optional
+from typing import List
 
 from emby_to_trakt.models import WatchedItem
 
 
 class TraktError(Exception):
     """Trakt API error."""
+
     pass
 
 
@@ -135,7 +136,9 @@ class TraktClient:
             )
 
             if response.status_code != 200:
-                raise TraktError(f"Failed to get watched movies: {response.status_code}")
+                raise TraktError(
+                    f"Failed to get watched movies: {response.status_code}"
+                )
 
             return response.json()
         except requests.RequestException as e:

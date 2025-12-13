@@ -6,7 +6,6 @@ import pytest
 import responses
 
 from emby_to_trakt.emby_client import EmbyClient, EmbyAuthError, EmbyConnectionError
-from emby_to_trakt.models import WatchedItem
 
 
 class TestEmbyAuthentication:

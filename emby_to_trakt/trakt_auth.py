@@ -5,6 +5,7 @@ import requests
 
 class TraktAuthError(Exception):
     """Authentication error."""
+
     pass
 
 

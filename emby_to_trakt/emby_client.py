@@ -45,7 +45,7 @@ class EmbyClient:
         # Build authorization header in MediaBrowser format
         auth_parts = [
             f'Client="{self.CLIENT_NAME}"',
-            f'Device="emby-sync"',
+            'Device="emby-sync"',
             f'DeviceId="{self.device_id}"',
             f'Version="{self.CLIENT_VERSION}"',
         ]
@@ -79,9 +79,7 @@ class EmbyClient:
         if response.status_code == 401:
             raise EmbyAuthError("Invalid username or password")
         if response.status_code != 200:
-            raise EmbyConnectionError(
-                f"Emby server error: {response.status_code}"
-            )
+            raise EmbyConnectionError(f"Emby server error: {response.status_code}")
 
         data = response.json()
         self.access_token = data["AccessToken"]
@@ -166,9 +164,7 @@ class EmbyClient:
             if response.status_code == 401:
                 raise EmbyAuthError("Access token expired or invalid")
             if response.status_code != 200:
-                raise EmbyConnectionError(
-                    f"Emby server error: {response.status_code}"
-                )
+                raise EmbyConnectionError(f"Emby server error: {response.status_code}")
 
             data = response.json()
 
@@ -247,7 +243,9 @@ class EmbyClient:
             tvdb_id=provider_ids.get("Tvdb"),
             user_rating=user_data.get("Rating"),
             series_name=raw.get("SeriesName") if item_type == "episode" else None,
-            season_number=raw.get("ParentIndexNumber") if item_type == "episode" else None,
+            season_number=raw.get("ParentIndexNumber")
+            if item_type == "episode"
+            else None,
             episode_number=raw.get("IndexNumber") if item_type == "episode" else None,
             raw_metadata=raw,
         )

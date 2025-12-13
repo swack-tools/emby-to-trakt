@@ -20,15 +20,17 @@ class UnmatchedLogger:
 
     def log(self, item: WatchedItem, reason: str) -> None:
         """Log an unmatched item."""
-        self.items.append({
-            "title": item.title,
-            "item_type": item.item_type,
-            "emby_id": item.emby_id,
-            "imdb_id": item.imdb_id,
-            "tmdb_id": item.tmdb_id,
-            "tvdb_id": item.tvdb_id,
-            "reason": reason,
-        })
+        self.items.append(
+            {
+                "title": item.title,
+                "item_type": item.item_type,
+                "emby_id": item.emby_id,
+                "imdb_id": item.imdb_id,
+                "tmdb_id": item.tmdb_id,
+                "tvdb_id": item.tvdb_id,
+                "reason": reason,
+            }
+        )
 
     def save(self) -> None:
         """Save unmatched items to YAML."""
