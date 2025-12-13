@@ -229,3 +229,96 @@ sync:
         )
 
         assert "5" in result.output  # Should show count
+
+
+class TestStatusCommand:
+    """Tests for status command."""
+
+    def test_status_no_data(self, tmp_path):
+        """Status shows message when no data exists."""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["status"],
+            env={"EMBY_SYNC_DATA_DIR": str(tmp_path)},
+        )
+
+        assert "No watched data" in result.output or "not found" in result.output.lower()
+
+    def test_status_shows_counts(self, tmp_path):
+        """Status displays item counts."""
+        # Create watched data
+        watched_content = """
+sync_metadata:
+  last_updated: "2025-12-12T14:30:00"
+  total_items: 10
+watched_items:
+  - emby_id: "1"
+    title: "Movie 1"
+    item_type: "movie"
+    watched_date: "2025-12-01T00:00:00"
+    play_count: 1
+    is_fully_watched: true
+    completion_percentage: 100.0
+    playback_position_ticks: 0
+    runtime_ticks: 1000
+    raw_metadata: {}
+"""
+        (tmp_path / "watched.yaml").write_text(watched_content)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["status"],
+            env={"EMBY_SYNC_DATA_DIR": str(tmp_path)},
+        )
+
+        assert result.exit_code == 0
+        assert "1" in result.output  # Item count
+
+
+class TestValidateCommand:
+    """Tests for validate command."""
+
+    def test_validate_no_config(self, tmp_path):
+        """Validate fails without config."""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["validate"],
+            env={"EMBY_SYNC_DATA_DIR": str(tmp_path)},
+        )
+
+        assert result.exit_code != 0
+
+    @responses.activate
+    def test_validate_success(self, tmp_path):
+        """Validate shows success for valid config."""
+        # Create config
+        config_content = """
+emby:
+  server_url: https://emby.example.com
+  user_id: user456
+  access_token: token123
+  device_id: device789
+sync:
+  mode: incremental
+"""
+        (tmp_path / "config.yaml").write_text(config_content)
+
+        responses.add(
+            responses.GET,
+            "https://emby.example.com/System/Info",
+            json={"ServerName": "My Emby"},
+            status=200,
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["validate"],
+            env={"EMBY_SYNC_DATA_DIR": str(tmp_path)},
+        )
+
+        assert result.exit_code == 0
+        assert "valid" in result.output.lower() or "success" in result.output.lower()

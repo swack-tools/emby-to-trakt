@@ -7,6 +7,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
 
 from emby_to_trakt import __version__
 from emby_to_trakt.config import Config, ConfigError
@@ -186,13 +187,88 @@ def download(mode, content, verbose, debug):
 @cli.command()
 def status():
     """Show sync status and statistics."""
-    console.print("[yellow]Status not yet implemented[/yellow]")
+    data_dir = get_data_dir()
+    store = DataStore(data_dir=data_dir)
+    config = Config(data_dir=data_dir)
+
+    # Load watched items
+    items = store.load_watched_items()
+
+    if not items:
+        console.print("[yellow]No watched data found.[/yellow]")
+        console.print("Run [bold]emby-sync download[/bold] to sync.")
+        return
+
+    # Count by type
+    movies = [i for i in items if i.item_type == "movie"]
+    episodes = [i for i in items if i.item_type == "episode"]
+    partial = [i for i in items if not i.is_fully_watched]
+
+    # Create table
+    table = Table(title="Sync Status")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+
+    table.add_row("Total Items", str(len(items)))
+    table.add_row("Movies", str(len(movies)))
+    table.add_row("Episodes", str(len(episodes)))
+    table.add_row("Partial Watches", str(len(partial)))
+
+    # Last sync time
+    last_sync = store.get_last_sync_time()
+    if last_sync:
+        table.add_row("Last Sync", last_sync.strftime("%Y-%m-%d %H:%M:%S"))
+
+    console.print(table)
+
+    # Config status
+    if config.exists():
+        try:
+            config.load()
+            console.print(f"\n[dim]Server: {config.server_url}[/dim]")
+            console.print(f"[dim]Sync mode: {config.sync_mode}[/dim]")
+        except ConfigError:
+            pass
 
 
 @cli.command()
 def validate():
     """Validate configuration and test Emby connection."""
-    console.print("[yellow]Validate not yet implemented[/yellow]")
+    data_dir = get_data_dir()
+    config = Config(data_dir=data_dir)
+
+    # Check config exists
+    if not config.exists():
+        console.print("[red]Configuration not found.[/red]")
+        console.print("Run [bold]emby-sync setup[/bold] to configure.")
+        raise SystemExit(1)
+
+    # Load config
+    try:
+        config.load()
+    except ConfigError as e:
+        console.print(f"[red]Invalid configuration:[/red] {e}")
+        raise SystemExit(1)
+
+    console.print(f"[dim]Server URL:[/dim] {config.server_url}")
+    console.print(f"[dim]User ID:[/dim] {config.user_id}")
+
+    # Test connection
+    console.print("\n[dim]Testing connection...[/dim]")
+
+    client = EmbyClient(
+        server_url=config.server_url,
+        access_token=config.access_token,
+        user_id=config.user_id,
+        device_id=config.device_id,
+    )
+
+    if client.test_connection():
+        console.print("[green]✓ Connection valid![/green]")
+    else:
+        console.print("[red]✗ Connection failed.[/red]")
+        console.print("Your token may have expired. Run [bold]emby-sync setup[/bold] to re-authenticate.")
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":
