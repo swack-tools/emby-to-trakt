@@ -2,11 +2,43 @@
 
 Sync watched history from Emby to Trakt.
 
+## Installation
+
+### Run directly without installing (recommended)
+
+Use `uvx` to run directly from GitHub:
+
+```bash
+uvx --from git+https://github.com/swack-tools/emby-to-trakt.git emby-sync --help
+```
+
+For convenience, create an alias:
+
+```bash
+alias emby-sync='uvx --from git+https://github.com/swack-tools/emby-to-trakt.git emby-sync'
+```
+
+### Install from GitHub
+
+```bash
+uv pip install git+https://github.com/swack-tools/emby-to-trakt.git
+```
+
+### Install from source
+
+```bash
+git clone https://github.com/swack-tools/emby-to-trakt.git
+cd emby-to-trakt
+uv pip install -e .
+```
+
 ## Quick Start
+
+> **Note:** Examples below use `emby-sync` directly. If you didn't create an alias, replace `emby-sync` with `uvx --from git+https://github.com/swack-tools/emby-to-trakt.git emby-sync` or `uv run emby-sync` (if running from source).
 
 1. **Setup Emby** - Configure your Emby connection:
    ```bash
-   uv run emby-sync setup
+   emby-sync setup
    ```
    You'll be prompted for:
    - Emby server URL (e.g., `https://emby.example.com`)
@@ -15,7 +47,7 @@ Sync watched history from Emby to Trakt.
 
 2. **Setup Trakt** - Connect your Trakt account:
    ```bash
-   uv run emby-sync trakt-setup
+   emby-sync trakt-setup
    ```
    This will guide you through:
    - Creating a Trakt API application at https://trakt.tv/oauth/applications
@@ -24,12 +56,12 @@ Sync watched history from Emby to Trakt.
 
 3. **Download & Push** - Sync your full watch history:
    ```bash
-   uv run emby-sync download --mode full --push
+   emby-sync download --mode full --push
    ```
 
 4. **Check Status**:
    ```bash
-   uv run emby-sync status
+   emby-sync status
    ```
 
 ## Common Workflows
@@ -37,45 +69,45 @@ Sync watched history from Emby to Trakt.
 ### First-time full sync to Trakt
 Download everything from Emby and push to Trakt:
 ```bash
-uv run emby-sync download --mode full --push
+emby-sync download --mode full --push
 ```
 
 ### Fresh sync (replace Trakt history)
 Clear Trakt first, then do a full sync:
 ```bash
-uv run emby-sync trakt-clear
-uv run emby-sync download --mode full --push
+emby-sync trakt-clear
+emby-sync download --mode full --push
 ```
 
 ### Incremental sync (daily updates)
 Only sync items changed since last sync:
 ```bash
-uv run emby-sync download --push
+emby-sync download --push
 ```
 
 ### Download and push separately
 ```bash
-uv run emby-sync download --mode full
-uv run emby-sync push
+emby-sync download --mode full
+emby-sync push
 ```
 
 ### Preview what would be synced
 ```bash
-uv run emby-sync push --dry-run
+emby-sync push --dry-run
 ```
 
 ## Commands
 
-### `uv run emby-sync setup`
+### `emby-sync setup`
 Interactive wizard to configure Emby connection. Authenticates with your Emby server and stores the access token locally.
 
-### `uv run emby-sync trakt-setup`
+### `emby-sync trakt-setup`
 Interactive wizard to connect to Trakt:
 1. Guides you to create a Trakt API application
 2. Prompts for your Client ID and Client Secret
 3. Uses device code authorization to link your account
 
-### `uv run emby-sync download`
+### `emby-sync download`
 Downloads watched movies and TV shows from Emby.
 
 Options:
@@ -88,7 +120,7 @@ Options:
 
 **Note:** Use `--mode full` for your first sync or when you want to re-download everything. Without this flag, only items modified since the last sync are downloaded.
 
-### `uv run emby-sync push`
+### `emby-sync push`
 Push downloaded watch history to Trakt.
 
 Options:
@@ -97,13 +129,13 @@ Options:
 - `--dry-run` - Preview changes without syncing
 - `--verbose` - Show detailed progress
 
-### `uv run emby-sync status`
+### `emby-sync status`
 Shows sync statistics: total items, movies, episodes, last sync time, Trakt connection status, and unmatched item count.
 
-### `uv run emby-sync validate`
+### `emby-sync validate`
 Tests both Emby and Trakt connections to verify configuration is working.
 
-### `uv run emby-sync trakt-clear`
+### `emby-sync trakt-clear`
 Clears ALL watch history from Trakt. Use before a fresh push if you want to replace your Trakt history entirely.
 
 Options:
