@@ -102,3 +102,36 @@ class TraktAuth:
                 raise TraktAuthError(f"Authorization denied: {error}")
 
         raise TraktAuthError(f"Token poll failed: {response.status_code}")
+
+    def refresh_token(self, refresh_token: str) -> dict:
+        """Refresh access token.
+
+        Args:
+            refresh_token: The refresh token to use for obtaining a new access token.
+
+        Returns:
+            dict: New token data with access_token and refresh_token.
+
+        Raises:
+            TraktAuthError: If the refresh fails or network error occurs.
+        """
+        url = f"{self.API_URL}/oauth/token"
+
+        try:
+            response = requests.post(
+                url,
+                json={
+                    "refresh_token": refresh_token,
+                    "client_id": self.client_id,
+                    "grant_type": "refresh_token",
+                },
+                headers=self._get_headers(),
+                timeout=30,
+            )
+        except requests.RequestException as e:
+            raise TraktAuthError(f"Cannot connect to Trakt API: {e}")
+
+        if response.status_code == 200:
+            return response.json()
+
+        raise TraktAuthError(f"Token refresh failed: {response.status_code}")

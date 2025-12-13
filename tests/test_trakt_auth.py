@@ -147,3 +147,57 @@ class TestPollForToken:
 
         with pytest.raises(TraktAuthError, match="Cannot connect to Trakt API"):
             auth.poll_for_token("device123")
+
+
+class TestTokenRefresh:
+    """Test token refresh."""
+
+    @responses.activate
+    def test_refresh_token_success(self):
+        """Refresh returns new tokens."""
+        responses.add(
+            responses.POST,
+            "https://api.trakt.tv/oauth/token",
+            json={
+                "access_token": "new_access",
+                "refresh_token": "new_refresh",
+                "expires_in": 7776000,
+                "created_at": 1734048000,
+            },
+            status=200,
+        )
+
+        auth = TraktAuth(client_id="test-client-id")
+        result = auth.refresh_token("old_refresh")
+
+        assert result["access_token"] == "new_access"
+        assert result["refresh_token"] == "new_refresh"
+
+    @responses.activate
+    def test_refresh_token_invalid(self):
+        """Refresh raises error on invalid token."""
+        responses.add(
+            responses.POST,
+            "https://api.trakt.tv/oauth/token",
+            json={"error": "invalid_grant"},
+            status=401,
+        )
+
+        auth = TraktAuth(client_id="test-client-id")
+
+        with pytest.raises(TraktAuthError, match="refresh failed"):
+            auth.refresh_token("bad_refresh")
+
+    @responses.activate
+    def test_refresh_token_network_error(self):
+        """Refresh raises error on network failure."""
+        responses.add(
+            responses.POST,
+            "https://api.trakt.tv/oauth/token",
+            body=requests.exceptions.ConnectionError("Network error"),
+        )
+
+        auth = TraktAuth(client_id="test-client-id")
+
+        with pytest.raises(TraktAuthError, match="Cannot connect to Trakt API"):
+            auth.refresh_token("old_refresh")
