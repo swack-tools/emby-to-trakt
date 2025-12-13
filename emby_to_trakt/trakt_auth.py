@@ -75,15 +75,18 @@ class TraktAuth:
         """
         url = f"{self.API_URL}/oauth/device/token"
 
-        response = requests.post(
-            url,
-            json={
-                "code": device_code,
-                "client_id": self.client_id,
-            },
-            headers=self._get_headers(),
-            timeout=30,
-        )
+        try:
+            response = requests.post(
+                url,
+                json={
+                    "code": device_code,
+                    "client_id": self.client_id,
+                },
+                headers=self._get_headers(),
+                timeout=30,
+            )
+        except requests.RequestException as e:
+            raise TraktAuthError(f"Cannot connect to Trakt API: {e}")
 
         if response.status_code == 200:
             return response.json()

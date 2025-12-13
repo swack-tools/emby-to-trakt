@@ -133,3 +133,17 @@ class TestPollForToken:
 
         with pytest.raises(TraktAuthError, match="denied"):
             auth.poll_for_token("device123")
+
+    @responses.activate
+    def test_poll_token_network_error(self):
+        """Poll raises error on network failure."""
+        responses.add(
+            responses.POST,
+            "https://api.trakt.tv/oauth/device/token",
+            body=requests.exceptions.ConnectionError("Network error"),
+        )
+
+        auth = TraktAuth(client_id="test-client-id")
+
+        with pytest.raises(TraktAuthError, match="Cannot connect to Trakt API"):
+            auth.poll_for_token("device123")
