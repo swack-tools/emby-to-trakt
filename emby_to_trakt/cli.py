@@ -1,11 +1,24 @@
 """CLI for emby-sync tool."""
 
+import os
+from pathlib import Path
+
 import click
 from rich.console import Console
 
 from emby_to_trakt import __version__
+from emby_to_trakt.config import Config, ConfigError
+from emby_to_trakt.emby_client import EmbyClient, EmbyAuthError, EmbyConnectionError
 
 console = Console()
+
+
+def get_data_dir() -> Path:
+    """Get data directory from env or default."""
+    env_dir = os.environ.get("EMBY_SYNC_DATA_DIR")
+    if env_dir:
+        return Path(env_dir)
+    return Path.cwd() / "data"
 
 
 @click.group()
@@ -18,7 +31,54 @@ def cli():
 @cli.command()
 def setup():
     """Interactive setup wizard to configure Emby connection."""
-    console.print("[yellow]Setup wizard not yet implemented[/yellow]")
+    data_dir = get_data_dir()
+    config = Config(data_dir=data_dir)
+
+    # Warn if config exists
+    if config.exists():
+        console.print(
+            "[yellow]Configuration already exists at:[/yellow] "
+            f"{config.config_path}"
+        )
+        if not click.confirm("Overwrite existing configuration?"):
+            console.print("[dim]Setup cancelled.[/dim]")
+            return
+
+    console.print("\n[bold]Emby Sync Setup[/bold]\n")
+
+    # Get server URL
+    server_url = click.prompt("Emby server URL", type=str)
+    server_url = server_url.rstrip("/")
+
+    # Get credentials
+    username = click.prompt("Username", type=str)
+    password = click.prompt("Password", hide_input=True, type=str)
+
+    # Authenticate
+    console.print("\n[dim]Authenticating with Emby server...[/dim]")
+
+    try:
+        client = EmbyClient(server_url=server_url)
+        result = client.authenticate(username, password)
+    except EmbyAuthError as e:
+        console.print(f"[red]Authentication failed:[/red] {e}")
+        raise SystemExit(1)
+    except EmbyConnectionError as e:
+        console.print(f"[red]Connection failed:[/red] {e}")
+        raise SystemExit(1)
+
+    # Save config
+    config.set_emby_credentials(
+        server_url=server_url,
+        user_id=result["user_id"],
+        access_token=result["access_token"],
+        device_id=result["device_id"],
+    )
+    config.save()
+
+    console.print("\n[green]✓ Setup complete![/green]")
+    console.print(f"  Config saved to: {config.config_path}")
+    console.print("\nRun [bold]emby-sync download[/bold] to sync watched history.")
 
 
 @cli.command()
