@@ -42,14 +42,19 @@ class EmbyClient:
 
     def _get_headers(self) -> dict:
         """Build request headers."""
-        headers = {
-            "X-Emby-Client": self.CLIENT_NAME,
-            "X-Emby-Client-Version": self.CLIENT_VERSION,
-            "X-Emby-Device-Id": self.device_id,
-            "X-Emby-Device-Name": "emby-sync",
-        }
+        # Build authorization header in MediaBrowser format
+        auth_parts = [
+            f'Client="{self.CLIENT_NAME}"',
+            f'Device="emby-sync"',
+            f'DeviceId="{self.device_id}"',
+            f'Version="{self.CLIENT_VERSION}"',
+        ]
         if self.access_token:
-            headers["X-Emby-Token"] = self.access_token
+            auth_parts.append(f'Token="{self.access_token}"')
+
+        headers = {
+            "X-Emby-Authorization": f"MediaBrowser {', '.join(auth_parts)}",
+        }
         return headers
 
     def authenticate(self, username: str, password: str) -> dict:
@@ -128,49 +133,51 @@ class EmbyClient:
         else:
             raise ValueError(f"Invalid content type: {content_type}")
 
-        params = {
-            "IncludeItemTypes": item_types,
-            "Recursive": "true",
-            "Fields": "ProviderIds,UserData,RunTimeTicks,Path",
-        }
-
+        # Build list of filters to query
+        filters_to_query = ["IsPlayed"]
         if include_partial:
-            # Get items with any play progress
-            params["Filters"] = "IsPlayed,IsResumable"
-        else:
-            params["Filters"] = "IsPlayed"
+            filters_to_query.append("IsResumable")
 
-        if since:
-            params["MinDateLastSaved"] = since.isoformat()
+        all_items = {}  # Use dict to deduplicate by emby_id
 
-        url = f"{self.server_url}/Users/{self.user_id}/Items"
+        for filter_value in filters_to_query:
+            params = {
+                "IncludeItemTypes": item_types,
+                "Recursive": "true",
+                "Fields": "ProviderIds,UserData,RunTimeTicks,Path",
+                "Filters": filter_value,
+            }
 
-        try:
-            response = requests.get(
-                url,
-                params=params,
-                headers=self._get_headers(),
-                timeout=60,
-            )
-        except requests.RequestException as e:
-            raise EmbyConnectionError(f"Cannot connect to Emby server: {e}")
+            if since:
+                params["MinDateLastSaved"] = since.isoformat()
 
-        if response.status_code == 401:
-            raise EmbyAuthError("Access token expired or invalid")
-        if response.status_code != 200:
-            raise EmbyConnectionError(
-                f"Emby server error: {response.status_code}"
-            )
+            url = f"{self.server_url}/Users/{self.user_id}/Items"
 
-        data = response.json()
-        items = []
+            try:
+                response = requests.get(
+                    url,
+                    params=params,
+                    headers=self._get_headers(),
+                    timeout=60,
+                )
+            except requests.RequestException as e:
+                raise EmbyConnectionError(f"Cannot connect to Emby server: {e}")
 
-        for raw_item in data.get("Items", []):
-            item = self._parse_item(raw_item)
-            if item:
-                items.append(item)
+            if response.status_code == 401:
+                raise EmbyAuthError("Access token expired or invalid")
+            if response.status_code != 200:
+                raise EmbyConnectionError(
+                    f"Emby server error: {response.status_code}"
+                )
 
-        return items
+            data = response.json()
+
+            for raw_item in data.get("Items", []):
+                item = self._parse_item(raw_item)
+                if item and item.emby_id not in all_items:
+                    all_items[item.emby_id] = item
+
+        return list(all_items.values())
 
     def _parse_item(self, raw: dict) -> Optional[WatchedItem]:
         """Parse Emby API item into WatchedItem."""

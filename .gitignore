@@ -20,9 +20,8 @@ build/
 *.swo
 
 # Project
-data/config.yaml
-data/watched.yaml
-data/*.log
+data/
+docs/
 
 # Testing
 .pytest_cache/

@@ -2,21 +2,11 @@
 
 Sync watched history from Emby to Trakt.
 
-## Installation
-
-```bash
-# Using uv (recommended)
-uv pip install -e .
-
-# Or run without installing
-uv run emby-sync --help
-```
-
 ## Quick Start
 
 1. **Setup** - Configure your Emby connection:
    ```bash
-   emby-sync setup
+   uv run emby-sync setup
    ```
    You'll be prompted for:
    - Emby server URL (e.g., `https://emby.example.com`)
@@ -25,20 +15,20 @@ uv run emby-sync --help
 
 2. **Download** - Fetch your watched history:
    ```bash
-   emby-sync download
+   uv run emby-sync download
    ```
 
 3. **Check Status**:
    ```bash
-   emby-sync status
+   uv run emby-sync status
    ```
 
 ## Commands
 
-### `emby-sync setup`
+### `uv run emby-sync setup`
 Interactive wizard to configure Emby connection. Authenticates with your Emby server and stores the access token locally.
 
-### `emby-sync download`
+### `uv run emby-sync download`
 Downloads watched movies and TV shows from Emby.
 
 Options:
@@ -47,10 +37,10 @@ Options:
 - `--verbose` - Show detailed progress
 - `--debug` - Show API requests
 
-### `emby-sync status`
+### `uv run emby-sync status`
 Shows sync statistics: total items, movies, episodes, and last sync time.
 
-### `emby-sync validate`
+### `uv run emby-sync validate`
 Tests your Emby connection to verify configuration is working.
 
 ## Data Storage
