@@ -151,6 +151,23 @@ All data is stored in the `data/` directory:
 - `unmatched.yaml` - Items that couldn't be matched on Trakt
 - `emby-sync.log` - Log file
 
+### Custom Data Directory
+
+Set the `EMBY_SYNC_DATA_DIR` environment variable to use a custom data directory:
+
+```bash
+export EMBY_SYNC_DATA_DIR=/path/to/data
+emby-sync status
+```
+
+Or create a `.env` file in the project root (copy from `.env.example`):
+
+```bash
+cp .env.example .env
+# Edit .env with your preferred path
+EMBY_SYNC_DATA_DIR=/path/to/data
+```
+
 ## Development
 
 ```bash
