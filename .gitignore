@@ -28,3 +28,8 @@ data/*.log
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Tool artifacts
+.claude/
+.claude-flow/
+.swarm/
