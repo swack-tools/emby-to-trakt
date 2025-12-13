@@ -78,3 +78,58 @@ class TestDeviceCodeRequest:
         auth = TraktAuth(client_id="test-client-id")
         with pytest.raises(TraktAuthError, match="Cannot connect to Trakt API"):
             auth.request_device_code()
+
+
+class TestPollForToken:
+    """Test polling for access token."""
+
+    @responses.activate
+    def test_poll_token_success(self):
+        """Poll returns tokens on success."""
+        responses.add(
+            responses.POST,
+            "https://api.trakt.tv/oauth/device/token",
+            json={
+                "access_token": "access123",
+                "refresh_token": "refresh456",
+                "expires_in": 7776000,
+                "created_at": 1734048000,
+            },
+            status=200,
+        )
+
+        auth = TraktAuth(client_id="test-client-id")
+        result = auth.poll_for_token("device123")
+
+        assert result["access_token"] == "access123"
+        assert result["refresh_token"] == "refresh456"
+
+    @responses.activate
+    def test_poll_token_pending(self):
+        """Poll returns None when authorization pending."""
+        responses.add(
+            responses.POST,
+            "https://api.trakt.tv/oauth/device/token",
+            json={"error": "authorization_pending"},
+            status=400,
+        )
+
+        auth = TraktAuth(client_id="test-client-id")
+        result = auth.poll_for_token("device123")
+
+        assert result is None
+
+    @responses.activate
+    def test_poll_token_denied(self):
+        """Poll raises error when user denies."""
+        responses.add(
+            responses.POST,
+            "https://api.trakt.tv/oauth/device/token",
+            json={"error": "access_denied"},
+            status=400,
+        )
+
+        auth = TraktAuth(client_id="test-client-id")
+
+        with pytest.raises(TraktAuthError, match="denied"):
+            auth.poll_for_token("device123")

@@ -59,3 +59,43 @@ class TraktAuth:
             raise TraktAuthError(f"Failed to get device code: {response.status_code}")
 
         return response.json()
+
+    def poll_for_token(self, device_code: str) -> dict | None:
+        """Poll for access token.
+
+        Args:
+            device_code: The device code returned from request_device_code().
+
+        Returns:
+            dict: Token data with access_token and refresh_token if authorized.
+            None: If authorization is still pending.
+
+        Raises:
+            TraktAuthError: If the user denies access or the token is expired.
+        """
+        url = f"{self.API_URL}/oauth/device/token"
+
+        response = requests.post(
+            url,
+            json={
+                "code": device_code,
+                "client_id": self.client_id,
+            },
+            headers=self._get_headers(),
+            timeout=30,
+        )
+
+        if response.status_code == 200:
+            return response.json()
+
+        if response.status_code == 400:
+            data = response.json()
+            error = data.get("error", "")
+
+            if error == "authorization_pending":
+                return None
+
+            if error in ("access_denied", "expired_token"):
+                raise TraktAuthError(f"Authorization denied: {error}")
+
+        raise TraktAuthError(f"Token poll failed: {response.status_code}")
