@@ -1,6 +1,7 @@
 """Tests for CLI commands."""
 
 import responses
+import yaml
 from click.testing import CliRunner
 
 from emby_to_trakt.cli import cli
@@ -366,3 +367,254 @@ class TestTraktSetupCommand:
         assert result.exit_code == 0
         assert "TESTCODE" in result.output
         assert "connected" in result.output.lower()
+
+
+class TestPushCommand:
+    """Test push command."""
+
+    @responses.activate
+    def test_push_dry_run(self, tmp_path, monkeypatch):
+        """Push with dry-run shows preview."""
+        monkeypatch.setenv("EMBY_SYNC_DATA_DIR", str(tmp_path))
+
+        # Create config
+        config = Config(data_dir=tmp_path)
+        config.set_emby_credentials(
+            server_url="http://emby.local",
+            user_id="user1",
+            access_token="token1",
+            device_id="device1",
+        )
+        config.set_trakt_credentials(
+            client_id="client1",
+            access_token="access1",
+            refresh_token="refresh1",
+            expires_at="2025-12-20T00:00:00",
+        )
+        config.save()
+
+        # Create watched.yaml with test data
+        watched_data = {
+            "sync_metadata": {"last_updated": "2025-12-12T00:00:00"},
+            "watched_items": [
+                {
+                    "emby_id": "1",
+                    "title": "Test Movie",
+                    "item_type": "movie",
+                    "watched_date": "2025-12-01T00:00:00",
+                    "play_count": 1,
+                    "is_fully_watched": True,
+                    "completion_percentage": 100.0,
+                    "playback_position_ticks": 0,
+                    "runtime_ticks": 0,
+                    "imdb_id": "tt1234567",
+                },
+            ],
+        }
+        watched_path = tmp_path / "watched.yaml"
+        with open(watched_path, "w") as f:
+            yaml.dump(watched_data, f)
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["push", "--dry-run"])
+
+        assert result.exit_code == 0
+        assert "dry run" in result.output.lower()
+        assert "1" in result.output  # 1 movie
+
+    @responses.activate
+    def test_push_syncs_to_trakt(self, tmp_path, monkeypatch):
+        """Push syncs items to Trakt."""
+        monkeypatch.setenv("EMBY_SYNC_DATA_DIR", str(tmp_path))
+
+        # Create config
+        config = Config(data_dir=tmp_path)
+        config.set_emby_credentials(
+            server_url="http://emby.local",
+            user_id="user1",
+            access_token="token1",
+            device_id="device1",
+        )
+        config.set_trakt_credentials(
+            client_id="client1",
+            access_token="access1",
+            refresh_token="refresh1",
+            expires_at="2025-12-20T00:00:00",
+        )
+        config.save()
+
+        # Create watched.yaml
+        watched_data = {
+            "sync_metadata": {"last_updated": "2025-12-12T00:00:00"},
+            "watched_items": [
+                {
+                    "emby_id": "1",
+                    "title": "Test Movie",
+                    "item_type": "movie",
+                    "watched_date": "2025-12-01T00:00:00",
+                    "play_count": 1,
+                    "is_fully_watched": True,
+                    "completion_percentage": 100.0,
+                    "playback_position_ticks": 0,
+                    "runtime_ticks": 0,
+                    "imdb_id": "tt1234567",
+                },
+            ],
+        }
+        watched_path = tmp_path / "watched.yaml"
+        with open(watched_path, "w") as f:
+            yaml.dump(watched_data, f)
+
+        # Mock Trakt sync
+        responses.add(
+            responses.POST,
+            "https://api.trakt.tv/sync/history",
+            json={"added": {"movies": 1, "episodes": 0}},
+            status=201,
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["push"])
+
+        assert result.exit_code == 0
+        assert "pushed" in result.output.lower() or "synced" in result.output.lower()
+
+    @responses.activate
+    def test_push_logs_unmatched_items(self, tmp_path, monkeypatch):
+        """Push logs items without provider IDs."""
+        monkeypatch.setenv("EMBY_SYNC_DATA_DIR", str(tmp_path))
+
+        # Create config
+        config = Config(data_dir=tmp_path)
+        config.set_emby_credentials(
+            server_url="http://emby.local",
+            user_id="user1",
+            access_token="token1",
+            device_id="device1",
+        )
+        config.set_trakt_credentials(
+            client_id="client1",
+            access_token="access1",
+            refresh_token="refresh1",
+            expires_at="2025-12-20T00:00:00",
+        )
+        config.save()
+
+        # Create watched.yaml with unmatched item
+        watched_data = {
+            "sync_metadata": {"last_updated": "2025-12-12T00:00:00"},
+            "watched_items": [
+                {
+                    "emby_id": "1",
+                    "title": "Unknown Movie",
+                    "item_type": "movie",
+                    "watched_date": "2025-12-01T00:00:00",
+                    "play_count": 1,
+                    "is_fully_watched": True,
+                    "completion_percentage": 100.0,
+                    "playback_position_ticks": 0,
+                    "runtime_ticks": 0,
+                    # No provider IDs
+                },
+            ],
+        }
+        watched_path = tmp_path / "watched.yaml"
+        with open(watched_path, "w") as f:
+            yaml.dump(watched_data, f)
+
+        # Mock Trakt sync (will get empty payload)
+        responses.add(
+            responses.POST,
+            "https://api.trakt.tv/sync/history",
+            json={"added": {"movies": 0, "episodes": 0}},
+            status=201,
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["push"])
+
+        assert result.exit_code == 0
+        assert "unmatched" in result.output.lower()
+        # Check unmatched.yaml was created
+        assert (tmp_path / "unmatched.yaml").exists()
+
+    def test_push_no_config(self, tmp_path, monkeypatch):
+        """Push fails without Trakt config."""
+        monkeypatch.setenv("EMBY_SYNC_DATA_DIR", str(tmp_path))
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["push"])
+
+        assert result.exit_code != 0
+        assert "not configured" in result.output.lower() or "not found" in result.output.lower()
+
+    @responses.activate
+    def test_push_content_filter_movies(self, tmp_path, monkeypatch):
+        """Push with --content movies filters episodes."""
+        monkeypatch.setenv("EMBY_SYNC_DATA_DIR", str(tmp_path))
+
+        # Create config
+        config = Config(data_dir=tmp_path)
+        config.set_emby_credentials(
+            server_url="http://emby.local",
+            user_id="user1",
+            access_token="token1",
+            device_id="device1",
+        )
+        config.set_trakt_credentials(
+            client_id="client1",
+            access_token="access1",
+            refresh_token="refresh1",
+            expires_at="2025-12-20T00:00:00",
+        )
+        config.save()
+
+        # Create watched.yaml with both movies and episodes
+        watched_data = {
+            "sync_metadata": {"last_updated": "2025-12-12T00:00:00"},
+            "watched_items": [
+                {
+                    "emby_id": "1",
+                    "title": "Test Movie",
+                    "item_type": "movie",
+                    "watched_date": "2025-12-01T00:00:00",
+                    "play_count": 1,
+                    "is_fully_watched": True,
+                    "completion_percentage": 100.0,
+                    "playback_position_ticks": 0,
+                    "runtime_ticks": 0,
+                    "imdb_id": "tt1234567",
+                },
+                {
+                    "emby_id": "2",
+                    "title": "Test Episode",
+                    "item_type": "episode",
+                    "watched_date": "2025-12-01T00:00:00",
+                    "play_count": 1,
+                    "is_fully_watched": True,
+                    "completion_percentage": 100.0,
+                    "playback_position_ticks": 0,
+                    "runtime_ticks": 0,
+                    "tvdb_id": "12345",
+                    "series_name": "Test Show",
+                    "season_number": 1,
+                    "episode_number": 1,
+                },
+            ],
+        }
+        watched_path = tmp_path / "watched.yaml"
+        with open(watched_path, "w") as f:
+            yaml.dump(watched_data, f)
+
+        # Mock Trakt sync - should only receive movies
+        responses.add(
+            responses.POST,
+            "https://api.trakt.tv/sync/history",
+            json={"added": {"movies": 1, "episodes": 0}},
+            status=201,
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["push", "--content", "movies"])
+
+        assert result.exit_code == 0

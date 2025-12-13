@@ -15,6 +15,8 @@ from emby_to_trakt.config import Config, ConfigError
 from emby_to_trakt.emby_client import EmbyClient, EmbyAuthError, EmbyConnectionError
 from emby_to_trakt.storage import DataStore
 from emby_to_trakt.trakt_auth import TraktAuth, TraktAuthError
+from emby_to_trakt.trakt_client import TraktClient, TraktError
+from emby_to_trakt.unmatched import UnmatchedLogger
 
 console = Console()
 
@@ -305,6 +307,112 @@ def status():
             console.print(f"[dim]Sync mode: {config.sync_mode}[/dim]")
         except ConfigError:
             pass
+
+
+@cli.command()
+@click.option(
+    "--mode",
+    type=click.Choice(["skip", "overwrite", "merge"]),
+    default="skip",
+    help="Conflict resolution mode",
+)
+@click.option(
+    "--content",
+    type=click.Choice(["movies", "episodes", "all"]),
+    default="all",
+    help="Content to sync",
+)
+@click.option("--dry-run", is_flag=True, help="Preview without syncing")
+@click.option("--verbose", is_flag=True, help="Show detailed progress")
+def push(mode, content, dry_run, verbose):
+    """Push watched history to Trakt."""
+    data_dir = get_data_dir()
+    config = Config(data_dir=data_dir)
+
+    # Load config
+    try:
+        config.load()
+    except ConfigError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise SystemExit(1)
+
+    if not config.trakt_configured:
+        console.print("[red]Trakt not configured.[/red]")
+        console.print("Run [bold]emby-sync trakt-setup[/bold] first.")
+        raise SystemExit(1)
+
+    # Load watched items
+    store = DataStore(data_dir=data_dir)
+    items = store.load_watched_items()
+
+    if not items:
+        console.print("[yellow]No watched items to sync.[/yellow]")
+        console.print("Run [bold]emby-sync download[/bold] first.")
+        return
+
+    # Filter by content type
+    if content == "movies":
+        items = [i for i in items if i.item_type == "movie"]
+    elif content == "episodes":
+        items = [i for i in items if i.item_type == "episode"]
+
+    # Separate items with and without provider IDs
+    syncable = []
+    unmatched_logger = UnmatchedLogger(data_dir=data_dir)
+
+    for item in items:
+        if item.imdb_id or item.tmdb_id or item.tvdb_id:
+            syncable.append(item)
+        else:
+            unmatched_logger.log(item, reason="No provider IDs")
+
+    movies = [i for i in syncable if i.item_type == "movie"]
+    episodes = [i for i in syncable if i.item_type == "episode"]
+
+    # Dry run output
+    if dry_run:
+        console.print("[bold]Dry run - no changes will be made[/bold]\n")
+        console.print(f"Would sync to Trakt:")
+        console.print(f"  Movies: {len(movies)}")
+        console.print(f"  Episodes: {len(episodes)}")
+        console.print(f"  Unmatched: {unmatched_logger.count()}")
+        return
+
+    # Create Trakt client
+    client = TraktClient(
+        client_id=config.trakt_client_id,
+        access_token=config.trakt_access_token,
+    )
+
+    # Sync history
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Syncing to Trakt...", total=None)
+
+            result = client.sync_history(syncable)
+
+            progress.update(task, description="Sync complete")
+
+        # Save unmatched items
+        unmatched_logger.save()
+
+        added_movies = result.get("added", {}).get("movies", 0)
+        added_episodes = result.get("added", {}).get("episodes", 0)
+
+        console.print(f"\n[green]✓ Pushed to Trakt[/green]")
+        console.print(f"  Movies: {added_movies}")
+        console.print(f"  Episodes: {added_episodes}")
+
+        if unmatched_logger.count() > 0:
+            console.print(f"  Unmatched: {unmatched_logger.count()} (see data/unmatched.yaml)")
+
+    except TraktError as e:
+        console.print(f"[red]Sync failed:[/red] {e}")
+        raise SystemExit(3)
 
 
 @cli.command()
