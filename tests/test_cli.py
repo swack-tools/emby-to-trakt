@@ -4,6 +4,7 @@ import responses
 from click.testing import CliRunner
 
 from emby_to_trakt.cli import cli
+from emby_to_trakt.config import Config
 
 
 def test_cli_help():
@@ -322,3 +323,46 @@ sync:
 
         assert result.exit_code == 0
         assert "valid" in result.output.lower() or "success" in result.output.lower()
+
+
+class TestTraktSetupCommand:
+    """Test trakt-setup command."""
+
+    @responses.activate
+    def test_trakt_setup_success(self, tmp_path, monkeypatch):
+        """Trakt setup completes successfully."""
+        monkeypatch.setenv("EMBY_SYNC_DATA_DIR", str(tmp_path))
+
+        # Mock device code request
+        responses.add(
+            responses.POST,
+            "https://api.trakt.tv/oauth/device/code",
+            json={
+                "device_code": "device123",
+                "user_code": "TESTCODE",
+                "verification_url": "https://trakt.tv/activate",
+                "expires_in": 600,
+                "interval": 1,
+            },
+            status=200,
+        )
+
+        # Mock token poll (immediate success)
+        responses.add(
+            responses.POST,
+            "https://api.trakt.tv/oauth/device/token",
+            json={
+                "access_token": "access123",
+                "refresh_token": "refresh456",
+                "expires_in": 7776000,
+                "created_at": 1734048000,
+            },
+            status=200,
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["trakt-setup"])
+
+        assert result.exit_code == 0
+        assert "TESTCODE" in result.output
+        assert "connected" in result.output.lower()

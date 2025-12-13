@@ -1,6 +1,7 @@
 """CLI for emby-sync tool."""
 
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -13,8 +14,12 @@ from emby_to_trakt import __version__
 from emby_to_trakt.config import Config, ConfigError
 from emby_to_trakt.emby_client import EmbyClient, EmbyAuthError, EmbyConnectionError
 from emby_to_trakt.storage import DataStore
+from emby_to_trakt.trakt_auth import TraktAuth, TraktAuthError
 
 console = Console()
+
+# Placeholder Trakt client ID - replace with your own from https://trakt.tv/oauth/applications
+TRAKT_CLIENT_ID = "your-trakt-client-id-here"
 
 
 def get_data_dir() -> Path:
@@ -83,6 +88,77 @@ def setup():
     console.print("\n[green]✓ Setup complete![/green]")
     console.print(f"  Config saved to: {config.config_path}")
     console.print("\nRun [bold]emby-sync download[/bold] to sync watched history.")
+
+
+@cli.command("trakt-setup")
+def trakt_setup():
+    """Connect to Trakt via device code authorization."""
+    data_dir = get_data_dir()
+    config = Config(data_dir=data_dir)
+
+    # Warn if already configured
+    if config.exists():
+        try:
+            config.load()
+            if config.trakt_configured:
+                console.print(
+                    "[yellow]Trakt already configured.[/yellow]"
+                )
+                if not click.confirm("Reconfigure?"):
+                    return
+        except ConfigError:
+            pass
+
+    console.print("\n[bold]Trakt Setup[/bold]\n")
+
+    auth = TraktAuth(client_id=TRAKT_CLIENT_ID)
+
+    try:
+        # Request device code
+        device_data = auth.request_device_code()
+
+        console.print(f"Visit: [bold]{device_data['verification_url']}[/bold]")
+        console.print(f"Enter code: [bold cyan]{device_data['user_code']}[/bold cyan]")
+        console.print("\n[dim]Waiting for authorization...[/dim]")
+
+        # Poll for token
+        interval = device_data.get("interval", 5)
+        expires_in = device_data.get("expires_in", 600)
+        device_code = device_data["device_code"]
+
+        start_time = time.time()
+        tokens = None
+
+        while time.time() - start_time < expires_in:
+            time.sleep(interval)
+            tokens = auth.poll_for_token(device_code)
+            if tokens:
+                break
+
+        if not tokens:
+            console.print("[red]Authorization timed out.[/red]")
+            raise SystemExit(2)
+
+        # Calculate expiry
+        expires_at = datetime.fromtimestamp(
+            tokens["created_at"] + tokens["expires_in"]
+        ).isoformat()
+
+        # Save to config
+        config.set_trakt_credentials(
+            client_id=TRAKT_CLIENT_ID,
+            access_token=tokens["access_token"],
+            refresh_token=tokens["refresh_token"],
+            expires_at=expires_at,
+        )
+        config.save()
+
+        console.print("\n[green]✓ Trakt connected![/green]")
+        console.print("Run [bold]emby-sync push[/bold] to sync your watch history.")
+
+    except TraktAuthError as e:
+        console.print(f"[red]Authorization failed:[/red] {e}")
+        raise SystemExit(2)
 
 
 @cli.command()
