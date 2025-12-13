@@ -112,3 +112,120 @@ class TestSetupCommand:
         )
 
         assert "already exists" in result.output.lower()
+
+
+class TestDownloadCommand:
+    """Tests for download command."""
+
+    def test_download_no_config(self, tmp_path):
+        """Download fails without config."""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["download"],
+            env={"EMBY_SYNC_DATA_DIR": str(tmp_path)},
+        )
+
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower() or "setup" in result.output.lower()
+
+    @responses.activate
+    def test_download_success(self, tmp_path):
+        """Download fetches and saves watched items."""
+        # Create config
+        config_content = """
+emby:
+  server_url: https://emby.example.com
+  user_id: user456
+  access_token: token123
+  device_id: device789
+sync:
+  mode: full
+"""
+        (tmp_path / "config.yaml").write_text(config_content)
+
+        # Mock API response
+        responses.add(
+            responses.GET,
+            "https://emby.example.com/Users/user456/Items",
+            json={
+                "Items": [
+                    {
+                        "Id": "movie1",
+                        "Name": "Test Movie",
+                        "Type": "Movie",
+                        "UserData": {
+                            "Played": True,
+                            "PlayCount": 1,
+                            "LastPlayedDate": "2025-12-01T20:00:00.0000000Z",
+                            "PlaybackPositionTicks": 0,
+                        },
+                        "RunTimeTicks": 7200000000000,
+                        "ProviderIds": {"Imdb": "tt0000001"},
+                    }
+                ],
+                "TotalRecordCount": 1,
+            },
+            status=200,
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["download", "--content", "movies"],
+            env={"EMBY_SYNC_DATA_DIR": str(tmp_path)},
+        )
+
+        assert result.exit_code == 0
+        assert "Downloaded" in result.output
+        assert (tmp_path / "watched.yaml").exists()
+
+    @responses.activate
+    def test_download_shows_summary(self, tmp_path):
+        """Download displays item count summary."""
+        # Create config
+        config_content = """
+emby:
+  server_url: https://emby.example.com
+  user_id: user456
+  access_token: token123
+  device_id: device789
+sync:
+  mode: full
+"""
+        (tmp_path / "config.yaml").write_text(config_content)
+
+        # Mock API response with multiple items
+        responses.add(
+            responses.GET,
+            "https://emby.example.com/Users/user456/Items",
+            json={
+                "Items": [
+                    {
+                        "Id": f"movie{i}",
+                        "Name": f"Movie {i}",
+                        "Type": "Movie",
+                        "UserData": {
+                            "Played": True,
+                            "PlayCount": 1,
+                            "LastPlayedDate": "2025-12-01T20:00:00.0000000Z",
+                            "PlaybackPositionTicks": 0,
+                        },
+                        "RunTimeTicks": 7200000000000,
+                        "ProviderIds": {},
+                    }
+                    for i in range(5)
+                ],
+                "TotalRecordCount": 5,
+            },
+            status=200,
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["download", "--content", "movies"],
+            env={"EMBY_SYNC_DATA_DIR": str(tmp_path)},
+        )
+
+        assert "5" in result.output  # Should show count

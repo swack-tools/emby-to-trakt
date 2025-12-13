@@ -1,14 +1,17 @@
 """CLI for emby-sync tool."""
 
 import os
+from datetime import datetime
 from pathlib import Path
 
 import click
 from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from emby_to_trakt import __version__
 from emby_to_trakt.config import Config, ConfigError
 from emby_to_trakt.emby_client import EmbyClient, EmbyAuthError, EmbyConnectionError
+from emby_to_trakt.storage import DataStore
 
 console = Console()
 
@@ -97,7 +100,87 @@ def setup():
 @click.option("--debug", is_flag=True, help="Show API request/response details")
 def download(mode, content, verbose, debug):
     """Download watched history from Emby server."""
-    console.print("[yellow]Download not yet implemented[/yellow]")
+    data_dir = get_data_dir()
+    config = Config(data_dir=data_dir)
+
+    # Load config
+    try:
+        config.load()
+    except ConfigError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        console.print("Run [bold]emby-sync setup[/bold] to configure.")
+        raise SystemExit(1)
+
+    # Determine sync mode
+    sync_mode = mode or config.sync_mode
+
+    # Create client
+    client = EmbyClient(
+        server_url=config.server_url,
+        access_token=config.access_token,
+        user_id=config.user_id,
+        device_id=config.device_id,
+    )
+
+    # Determine content types to fetch
+    content_types = []
+    if content in ("movies", "all"):
+        content_types.append("movies")
+    if content in ("episodes", "all"):
+        content_types.append("episodes")
+
+    # Get since date for incremental sync
+    since = None
+    if sync_mode == "incremental":
+        store = DataStore(data_dir=data_dir)
+        since = store.get_last_sync_time()
+        if since and verbose:
+            console.print(f"[dim]Incremental sync since: {since}[/dim]")
+
+    all_items = []
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        for content_type in content_types:
+            task = progress.add_task(
+                f"Fetching {content_type}...",
+                total=None,
+            )
+
+            try:
+                items = client.get_watched_items(
+                    content_type=content_type,
+                    since=since,
+                    include_partial=True,
+                )
+                all_items.extend(items)
+                progress.update(task, description=f"Fetched {len(items)} {content_type}")
+            except (EmbyAuthError, EmbyConnectionError) as e:
+                console.print(f"[red]Error:[/red] {e}")
+                raise SystemExit(2)
+
+            progress.remove_task(task)
+
+    # Save items
+    store = DataStore(data_dir=data_dir)
+    store.save_watched_items(all_items)
+
+    # Update last sync time
+    config.set_last_sync(datetime.now())
+    config.save()
+
+    # Summary
+    movies = sum(1 for i in all_items if i.item_type == "movie")
+    episodes = sum(1 for i in all_items if i.item_type == "episode")
+
+    console.print(
+        f"\n[green]✓ Downloaded {len(all_items)} items[/green] "
+        f"({movies} movies, {episodes} episodes)"
+    )
+    console.print(f"  Saved to: {store.watched_path}")
 
 
 @cli.command()
