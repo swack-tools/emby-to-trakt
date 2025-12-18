@@ -33,3 +33,4 @@ htmlcov/
 .claude/
 .claude-flow/
 .swarm/
+*.log

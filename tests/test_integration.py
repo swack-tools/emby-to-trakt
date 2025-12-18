@@ -95,8 +95,8 @@ class TestEndToEndWorkflow:
         result = runner.invoke(cli, ["download"], env=env)
         assert result.exit_code == 0
         assert (tmp_path / "watched.yaml").exists()
-        assert "Downloaded" in result.output
-        assert "items" in result.output
+        assert "Downloaded from Emby" in result.output
+        assert "Movies" in result.output
 
         # 3. Status
         result = runner.invoke(cli, ["status"], env=env)
