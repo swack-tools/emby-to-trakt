@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Set
 
 import yaml
 
@@ -19,6 +19,7 @@ class DataStore:
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.watched_path = self.data_dir / "watched.yaml"
+        self.synced_path = self.data_dir / "synced_to_trakt.yaml"
 
     def save_watched_items(self, items: List[WatchedItem]) -> None:
         """Save watched items to YAML file."""
@@ -68,3 +69,47 @@ class DataStore:
         if last_updated:
             return datetime.fromisoformat(last_updated)
         return None
+
+    def load_synced_ids(self) -> Set[str]:
+        """Load set of emby_ids that have been pushed to Trakt."""
+        if not self.synced_path.exists():
+            return set()
+
+        with open(self.synced_path) as f:
+            data = yaml.safe_load(f)
+
+        if not data or "synced_ids" not in data:
+            return set()
+
+        return set(data["synced_ids"])
+
+    def mark_as_synced(self, items: List[WatchedItem]) -> None:
+        """Mark items as synced to Trakt."""
+        synced_ids = self.load_synced_ids()
+        for item in items:
+            synced_ids.add(item.emby_id)
+
+        data = {
+            "last_push": datetime.now().isoformat(),
+            "total_synced": len(synced_ids),
+            "synced_ids": sorted(synced_ids),
+        }
+
+        with open(self.synced_path, "w") as f:
+            yaml.dump(
+                data,
+                f,
+                default_flow_style=False,
+                allow_unicode=True,
+                sort_keys=False,
+                indent=2,
+            )
+
+    def filter_unsynced(self, items: List[WatchedItem]) -> List[WatchedItem]:
+        """Return only items that haven't been synced to Trakt yet."""
+        synced_ids = self.load_synced_ids()
+        return [item for item in items if item.emby_id not in synced_ids]
+
+    def get_synced_count(self) -> int:
+        """Get count of items synced to Trakt."""
+        return len(self.load_synced_ids())

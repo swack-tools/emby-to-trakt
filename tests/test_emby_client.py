@@ -217,8 +217,8 @@ class TestFetchWatchedItems:
         since = datetime(2025, 12, 1, 0, 0, 0)
         client.get_watched_items(content_type="movies", since=since)
 
-        # Verify the request included the date filter
-        assert "MinDateLastSaved" in responses.calls[0].request.url
+        # Verify the request included the date filter (by last played, not metadata save)
+        assert "MinDateLastPlayed" in responses.calls[0].request.url
 
     @responses.activate
     def test_get_watched_partial_progress(self):

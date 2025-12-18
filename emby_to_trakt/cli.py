@@ -21,6 +21,18 @@ from emby_to_trakt.unmatched import UnmatchedLogger
 console = Console()
 
 
+def _format_provider_ids(item) -> str:
+    """Format provider IDs for display."""
+    ids = []
+    if item.imdb_id:
+        ids.append(f"imdb:{item.imdb_id}")
+    if item.tmdb_id:
+        ids.append(f"tmdb:{item.tmdb_id}")
+    if item.tvdb_id:
+        ids.append(f"tvdb:{item.tvdb_id}")
+    return f"[{', '.join(ids)}]" if ids else ""
+
+
 def get_data_dir() -> Path:
     """Get data directory from env or default."""
     env_dir = os.environ.get("EMBY_SYNC_DATA_DIR")
@@ -213,7 +225,8 @@ def trakt_setup():
 @click.option("--verbose", is_flag=True, help="Show detailed progress")
 @click.option("--debug", is_flag=True, help="Show API request/response details")
 @click.option("--push", is_flag=True, help="Push to Trakt after download")
-def download(mode, content, verbose, debug, push):
+@click.option("--force", is_flag=True, help="Force push even if already synced")
+def download(mode, content, verbose, debug, push, force):
     """Download watched history from Emby server."""
     data_dir = get_data_dir()
     config = Config(data_dir=data_dir)
@@ -253,6 +266,8 @@ def download(mode, content, verbose, debug, push):
             console.print(f"[dim]Incremental sync since: {since}[/dim]")
 
     all_items = []
+    movies_count = 0
+    episodes_count = 0
 
     with Progress(
         SpinnerColumn(),
@@ -272,9 +287,17 @@ def download(mode, content, verbose, debug, push):
                     include_partial=True,
                 )
                 all_items.extend(items)
-                progress.update(
-                    task, description=f"Fetched {len(items)} {content_type}"
-                )
+
+                if content_type == "movies":
+                    movies_count = len(items)
+                    progress.update(
+                        task, description=f"[cyan]🎬 Fetched {len(items)} movies[/cyan]"
+                    )
+                else:
+                    episodes_count = len(items)
+                    progress.update(
+                        task, description=f"[magenta]📺 Fetched {len(items)} episodes[/magenta]"
+                    )
             except (EmbyAuthError, EmbyConnectionError) as e:
                 console.print(f"[red]Error:[/red] {e}")
                 raise SystemExit(2)
@@ -290,14 +313,12 @@ def download(mode, content, verbose, debug, push):
     config.save()
 
     # Summary
-    movies = sum(1 for i in all_items if i.item_type == "movie")
-    episodes = sum(1 for i in all_items if i.item_type == "episode")
-
-    console.print(
-        f"\n[green]✓ Downloaded {len(all_items)} items[/green] "
-        f"({movies} movies, {episodes} episodes)"
-    )
-    console.print(f"  Saved to: {store.watched_path}")
+    console.print(f"\n[green]✓ Downloaded from Emby:[/green]")
+    if movies_count > 0 or "movies" in content_types:
+        console.print(f"  [cyan]🎬 Movies:[/cyan] {movies_count}")
+    if episodes_count > 0 or "episodes" in content_types:
+        console.print(f"  [magenta]📺 Episodes:[/magenta] {episodes_count}")
+    console.print(f"  [dim]Saved to: {store.watched_path}[/dim]")
 
     # Push to Trakt if requested
     if push:
@@ -321,8 +342,50 @@ def download(mode, content, verbose, debug, push):
             unmatched_logger.save()
             return
 
+        # Filter out already-synced items (unless --force)
+        total_with_ids = len(syncable)
+        skipped_count = 0
+        if not force:
+            syncable = store.filter_unsynced(syncable)
+            skipped_count = total_with_ids - len(syncable)
+
+            if not syncable:
+                console.print(
+                    f"\n[dim]All {total_with_ids} items already synced to Trakt.[/dim]"
+                )
+                console.print("[dim]Use --force to re-sync.[/dim]")
+                unmatched_logger.save()
+                return
+
+            if skipped_count > 0:
+                console.print(
+                    f"\n[dim]Skipping {skipped_count} already-synced items[/dim]"
+                )
+
+        # Display items being synced
+        movies = [i for i in syncable if i.item_type == "movie"]
+        episodes = [i for i in syncable if i.item_type == "episode"]
+
+        if movies:
+            console.print(f"\n[bold cyan]🎬 Movies to sync ({len(movies)}):[/bold cyan]")
+            for movie in movies:
+                ids = _format_provider_ids(movie)
+                console.print(f"  [cyan]•[/cyan] {movie.title} [dim]{ids}[/dim]")
+
+        if episodes:
+            console.print(f"\n[bold magenta]📺 Episodes to sync ({len(episodes)}):[/bold magenta]")
+            for ep in episodes:
+                ep_info = f"S{ep.season_number:02d}E{ep.episode_number:02d}"
+                ids = _format_provider_ids(ep)
+                console.print(
+                    f"  [magenta]•[/magenta] [bold]{ep.series_name}[/bold] "
+                    f"[yellow]{ep_info}[/yellow] {ep.title} [dim]{ids}[/dim]"
+                )
+
+        console.print()
+
         # Create Trakt client and sync
-        client = TraktClient(
+        trakt_client = TraktClient(
             client_id=config.trakt_client_id,
             access_token=config.trakt_access_token,
         )
@@ -335,9 +398,12 @@ def download(mode, content, verbose, debug, push):
             ) as progress:
                 task = progress.add_task("Pushing to Trakt...", total=None)
 
-                result = client.sync_history(syncable)
+                result = trakt_client.sync_history(syncable)
 
                 progress.update(task, description="Push complete")
+
+            # Mark items as synced
+            store.mark_as_synced(syncable)
 
             # Save unmatched items
             unmatched_logger.save()
@@ -348,6 +414,9 @@ def download(mode, content, verbose, debug, push):
             console.print("\n[green]✓ Pushed to Trakt[/green]")
             console.print(f"  Movies: {added_movies}")
             console.print(f"  Episodes: {added_episodes}")
+
+            if skipped_count > 0:
+                console.print(f"  [dim]Skipped: {skipped_count} (already synced)[/dim]")
 
             if unmatched_logger.count() > 0:
                 console.print(
@@ -440,7 +509,8 @@ def status():
 )
 @click.option("--dry-run", is_flag=True, help="Preview without syncing")
 @click.option("--verbose", is_flag=True, help="Show detailed progress")
-def push(mode, content, dry_run, verbose):
+@click.option("--force", is_flag=True, help="Force push even if already synced")
+def push(mode, content, dry_run, verbose, force):
     """Push watched history to Trakt."""
     data_dir = get_data_dir()
     config = Config(data_dir=data_dir)
@@ -482,16 +552,58 @@ def push(mode, content, dry_run, verbose):
         else:
             unmatched_logger.log(item, reason="No provider IDs")
 
+    # Filter out already-synced items (unless --force)
+    total_with_ids = len(syncable)
+    skipped_count = 0
+    if not force:
+        syncable = store.filter_unsynced(syncable)
+        skipped_count = total_with_ids - len(syncable)
+
     movies = [i for i in syncable if i.item_type == "movie"]
     episodes = [i for i in syncable if i.item_type == "episode"]
 
     # Dry run output
     if dry_run:
-        console.print("[bold]Dry run - no changes will be made[/bold]\n")
-        console.print("Would sync to Trakt:")
-        console.print(f"  Movies: {len(movies)}")
-        console.print(f"  Episodes: {len(episodes)}")
-        console.print(f"  Unmatched: {unmatched_logger.count()}")
+        console.print("[bold yellow]🔍 Dry run - no changes will be made[/bold yellow]\n")
+
+        if skipped_count > 0:
+            console.print(f"[dim]Skipping {skipped_count} already-synced items[/dim]\n")
+
+        if movies:
+            console.print(f"[bold cyan]🎬 Movies to sync ({len(movies)}):[/bold cyan]")
+            for movie in movies:
+                ids = _format_provider_ids(movie)
+                console.print(f"  [cyan]•[/cyan] {movie.title} [dim]{ids}[/dim]")
+
+        if episodes:
+            console.print(f"\n[bold magenta]📺 Episodes to sync ({len(episodes)}):[/bold magenta]")
+            for ep in episodes:
+                ep_info = f"S{ep.season_number:02d}E{ep.episode_number:02d}"
+                ids = _format_provider_ids(ep)
+                console.print(
+                    f"  [magenta]•[/magenta] [bold]{ep.series_name}[/bold] "
+                    f"[yellow]{ep_info}[/yellow] {ep.title} [dim]{ids}[/dim]"
+                )
+
+        if not syncable:
+            console.print(f"\n[dim]All {total_with_ids} items already synced to Trakt.[/dim]")
+            console.print("[dim]Use --force to re-sync.[/dim]")
+        console.print(f"\n[yellow]⚠ Unmatched: {unmatched_logger.count()}[/yellow]")
+        return
+
+    if not syncable:
+        if total_with_ids > 0:
+            console.print(
+                f"\n[dim]All {total_with_ids} items already synced to Trakt.[/dim]"
+            )
+            console.print("[dim]Use --force to re-sync.[/dim]")
+        else:
+            console.print("\n[yellow]No items with provider IDs to push.[/yellow]")
+        unmatched_logger.save()
+        if unmatched_logger.count() > 0:
+            console.print(
+                f"  Unmatched: {unmatched_logger.count()} (see data/unmatched.yaml)"
+            )
         return
 
     # Create Trakt client
@@ -499,6 +611,28 @@ def push(mode, content, dry_run, verbose):
         client_id=config.trakt_client_id,
         access_token=config.trakt_access_token,
     )
+
+    if skipped_count > 0:
+        console.print(f"\n[dim]Skipping {skipped_count} already-synced items[/dim]")
+
+    # Display items being synced
+    if movies:
+        console.print(f"\n[bold cyan]🎬 Movies to sync ({len(movies)}):[/bold cyan]")
+        for movie in movies:
+            ids = _format_provider_ids(movie)
+            console.print(f"  [cyan]•[/cyan] {movie.title} [dim]{ids}[/dim]")
+
+    if episodes:
+        console.print(f"\n[bold magenta]📺 Episodes to sync ({len(episodes)}):[/bold magenta]")
+        for ep in episodes:
+            ep_info = f"S{ep.season_number:02d}E{ep.episode_number:02d}"
+            ids = _format_provider_ids(ep)
+            console.print(
+                f"  [magenta]•[/magenta] [bold]{ep.series_name}[/bold] "
+                f"[yellow]{ep_info}[/yellow] {ep.title} [dim]{ids}[/dim]"
+            )
+
+    console.print()
 
     # Sync history
     try:
@@ -513,6 +647,9 @@ def push(mode, content, dry_run, verbose):
 
             progress.update(task, description="Sync complete")
 
+        # Mark items as synced
+        store.mark_as_synced(syncable)
+
         # Save unmatched items
         unmatched_logger.save()
 
@@ -522,6 +659,9 @@ def push(mode, content, dry_run, verbose):
         console.print("\n[green]✓ Pushed to Trakt[/green]")
         console.print(f"  Movies: {added_movies}")
         console.print(f"  Episodes: {added_episodes}")
+
+        if skipped_count > 0:
+            console.print(f"  [dim]Skipped: {skipped_count} (already synced)[/dim]")
 
         if unmatched_logger.count() > 0:
             console.print(

@@ -147,7 +147,8 @@ class EmbyClient:
             }
 
             if since:
-                params["MinDateLastSaved"] = since.isoformat()
+                # Filter by when item was actually watched, not when metadata changed
+                params["MinDateLastPlayed"] = since.isoformat()
 
             url = f"{self.server_url}/Users/{self.user_id}/Items"
 
@@ -173,7 +174,18 @@ class EmbyClient:
                 if item and item.emby_id not in all_items:
                     all_items[item.emby_id] = item
 
-        return list(all_items.values())
+        items = list(all_items.values())
+
+        # Client-side filter as fallback (in case API doesn't support MinDateLastPlayed)
+        if since:
+            # Make comparison timezone-safe by comparing naive datetimes
+            since_naive = since.replace(tzinfo=None) if since.tzinfo else since
+            items = [
+                i for i in items
+                if i.watched_date.replace(tzinfo=None) >= since_naive
+            ]
+
+        return items
 
     def _parse_emby_date(self, date_string: str) -> Optional[datetime]:
         """Parse Emby's timestamp format."""
