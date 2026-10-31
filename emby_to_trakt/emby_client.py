@@ -187,6 +187,91 @@ class EmbyClient:
 
         return items
 
+    LIBRARY_PAGE_SIZE = 500
+
+    def get_library_items(self, item_type: str) -> List[dict]:
+        """Fetch every library item of one type, watched or not.
+
+        Only metadata is fetched (IDs, provider IDs, user data), paged so
+        large libraries stay cheap.
+
+        Args:
+            item_type: Emby item type, e.g. "Movie", "Series" or "Episode"
+
+        Returns:
+            List of raw Emby item dicts
+        """
+        url = f"{self.server_url}/Users/{self.user_id}/Items"
+        items: List[dict] = []
+        start = 0
+
+        while True:
+            params = {
+                "IncludeItemTypes": item_type,
+                "Recursive": "true",
+                "Fields": "ProviderIds",
+                "EnableImages": "false",
+                "StartIndex": start,
+                "Limit": self.LIBRARY_PAGE_SIZE,
+            }
+
+            try:
+                response = requests.get(
+                    url,
+                    params=params,
+                    headers=self._get_headers(),
+                    timeout=120,
+                )
+            except requests.RequestException as e:
+                raise EmbyConnectionError(f"Cannot connect to Emby server: {e}")
+
+            if response.status_code == 401:
+                raise EmbyAuthError("Access token expired or invalid")
+            if response.status_code != 200:
+                raise EmbyConnectionError(f"Emby server error: {response.status_code}")
+
+            data = response.json()
+            page = data.get("Items", [])
+            items.extend(page)
+            start += len(page)
+
+            total = data.get("TotalRecordCount")
+            if not page or len(page) < self.LIBRARY_PAGE_SIZE:
+                break
+            if total is not None and start >= total:
+                break
+
+        return items
+
+    def mark_played(self, item_id: str, date_played: Optional[datetime] = None) -> None:
+        """Mark an item as played for the current user.
+
+        Args:
+            item_id: Emby item ID
+            date_played: When it was watched (UTC). Emby uses now if omitted.
+        """
+        url = f"{self.server_url}/Users/{self.user_id}/PlayedItems/{item_id}"
+        params = {}
+        if date_played:
+            params["DatePlayed"] = date_played.strftime("%Y%m%d%H%M%S")
+
+        try:
+            response = requests.post(
+                url,
+                params=params,
+                headers=self._get_headers(),
+                timeout=30,
+            )
+        except requests.RequestException as e:
+            raise EmbyConnectionError(f"Cannot connect to Emby server: {e}")
+
+        if response.status_code == 401:
+            raise EmbyAuthError("Access token expired or invalid")
+        if response.status_code not in (200, 204):
+            raise EmbyConnectionError(
+                f"Failed to mark item {item_id} played: {response.status_code}"
+            )
+
     def _parse_emby_date(self, date_string: str) -> Optional[datetime]:
         """Parse Emby's timestamp format."""
         if not date_string:

@@ -16,6 +16,7 @@ from emby_to_trakt.emby_client import EmbyClient, EmbyAuthError, EmbyConnectionE
 from emby_to_trakt.storage import DataStore
 from emby_to_trakt.trakt_auth import TraktAuth, TraktAuthError
 from emby_to_trakt.trakt_client import TraktClient, TraktError
+from emby_to_trakt.trakt_to_emby import build_pull_plan, save_unmatched
 from emby_to_trakt.unmatched import UnmatchedLogger
 
 console = Console()
@@ -671,6 +672,155 @@ def push(mode, content, dry_run, verbose, force):
     except TraktError as e:
         console.print(f"[red]Sync failed:[/red] {e}")
         raise SystemExit(3)
+
+
+def _format_play(play) -> str:
+    """Format a planned Emby play for display."""
+    if play.item_type == "episode":
+        return (
+            f"[bold]{play.series_name}[/bold] "
+            f"[yellow]S{play.season_number:02d}E{play.episode_number:02d}[/yellow] "
+            f"{play.title}"
+        )
+    return play.title
+
+
+@cli.command()
+@click.option(
+    "--content",
+    type=click.Choice(["movies", "episodes", "all"]),
+    default="all",
+    help="What to sync from Trakt (default: all)",
+)
+@click.option("--dry-run", is_flag=True, help="Show what would be marked without changing Emby")
+@click.option("--verbose", "-v", is_flag=True, help="List every item")
+def pull(content, dry_run, verbose):
+    """Sync watched status from Trakt to Emby.
+
+    Reads your Trakt watched movies and shows, matches them to your Emby
+    library by IMDb/TMDb/TVDB IDs, and marks unwatched matches as played
+    using the Trakt watch date. Items already played on Emby are left
+    alone, and nothing is ever marked unplayed.
+    """
+    data_dir = get_data_dir()
+    config = Config(data_dir=data_dir)
+
+    try:
+        config.load()
+    except ConfigError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        console.print("Run [bold]emby-sync setup[/bold] to configure.")
+        raise SystemExit(1)
+
+    if not config.trakt_configured:
+        console.print("[red]Trakt not configured.[/red]")
+        console.print("Run [bold]emby-sync trakt-setup[/bold] first.")
+        raise SystemExit(1)
+
+    emby = EmbyClient(
+        server_url=config.server_url,
+        access_token=config.access_token,
+        user_id=config.user_id,
+        device_id=config.device_id,
+    )
+    trakt = TraktClient(
+        client_id=config.trakt_client_id,
+        access_token=config.trakt_access_token,
+    )
+
+    want_movies = content in ("movies", "all")
+    want_episodes = content in ("episodes", "all")
+
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Fetching Trakt watched history...", total=None)
+            trakt_movies = trakt.get_watched_movies() if want_movies else []
+            trakt_shows = trakt.get_watched_shows() if want_episodes else []
+
+            progress.update(task, description="Fetching Emby library...")
+            emby_movies = emby.get_library_items("Movie") if want_movies else []
+            emby_series = emby.get_library_items("Series") if want_episodes else []
+            emby_episodes = emby.get_library_items("Episode") if want_episodes else []
+
+            progress.update(task, description="Matching...")
+            plan = build_pull_plan(
+                trakt_movies, trakt_shows, emby_movies, emby_series, emby_episodes
+            )
+            progress.update(task, description="Matching complete")
+    except TraktError as e:
+        console.print(f"[red]Trakt error:[/red] {e}")
+        raise SystemExit(3)
+    except (EmbyAuthError, EmbyConnectionError) as e:
+        console.print(f"[red]Emby error:[/red] {e}")
+        raise SystemExit(2)
+
+    movies = plan.movies
+    episodes = plan.episodes
+
+    if dry_run:
+        console.print("[bold yellow]🔍 Dry run - Emby will not be changed[/bold yellow]")
+
+    if verbose or dry_run:
+        if movies:
+            console.print(f"\n[bold cyan]🎬 Movies to mark played ({len(movies)}):[/bold cyan]")
+            for play in movies:
+                console.print(f"  [cyan]•[/cyan] {_format_play(play)}")
+        if episodes:
+            console.print(
+                f"\n[bold magenta]📺 Episodes to mark played ({len(episodes)}):[/bold magenta]"
+            )
+            for play in episodes:
+                console.print(f"  [magenta]•[/magenta] {_format_play(play)}")
+
+    if plan.unmatched:
+        path = save_unmatched(data_dir, plan.unmatched)
+        unmatched_note = f"{len(plan.unmatched)} (see {path.name})"
+    else:
+        unmatched_note = "0"
+
+    if dry_run:
+        console.print(f"\n  Would mark: {len(movies)} movies, {len(episodes)} episodes")
+        console.print(f"  Already played on Emby: {plan.already_played}")
+        console.print(f"  Not in Emby: {unmatched_note}")
+        return
+
+    marked = {"movie": 0, "episode": 0}
+    failed = []
+    if plan.to_mark:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Marking played on Emby...", total=None)
+            for i, play in enumerate(plan.to_mark, start=1):
+                progress.update(
+                    task, description=f"Marking played on Emby ({i}/{len(plan.to_mark)})..."
+                )
+                try:
+                    emby.mark_played(play.emby_id, play.watched_at)
+                    marked[play.item_type] += 1
+                except EmbyAuthError as e:
+                    console.print(f"[red]Emby error:[/red] {e}")
+                    raise SystemExit(2)
+                except EmbyConnectionError as e:
+                    failed.append((play, str(e)))
+
+    console.print("\n[green]✓ Pulled from Trakt to Emby[/green]")
+    console.print(f"  Movies marked played: {marked['movie']}")
+    console.print(f"  Episodes marked played: {marked['episode']}")
+    console.print(f"  [dim]Already played on Emby: {plan.already_played}[/dim]")
+    console.print(f"  Not in Emby: {unmatched_note}")
+
+    if failed:
+        console.print(f"  [red]Failed: {len(failed)}[/red]")
+        for play, err in failed[:10]:
+            console.print(f"    [red]•[/red] {_format_play(play)}: {err}")
+        raise SystemExit(2)
 
 
 @cli.command("trakt-clear")

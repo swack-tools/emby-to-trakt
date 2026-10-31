@@ -1,6 +1,6 @@
 # Emby to Trakt
 
-Sync watched history from Emby to Trakt.
+Sync watched history from Emby to Trakt, and from Trakt back to Emby.
 
 ## Installation
 
@@ -96,6 +96,13 @@ emby-sync push
 emby-sync push --dry-run
 ```
 
+### Sync Trakt watched history to Emby
+Preview first, then mark Trakt-watched items as played on Emby:
+```bash
+emby-sync pull --dry-run
+emby-sync pull
+```
+
 ## Commands
 
 ### `emby-sync setup`
@@ -128,6 +135,18 @@ Options:
 - `--content [movies|episodes|all]` - What content to push
 - `--dry-run` - Preview changes without syncing
 - `--verbose` - Show detailed progress
+
+### `emby-sync pull`
+Sync watched status from Trakt to Emby. Fetches your Trakt watched movies and shows, reads your Emby library metadata (paged, no media), matches items by IMDb/TMDb/TVDB ID (episodes by show ID plus season and episode number), and marks matches as played on Emby using the Trakt watch date.
+
+- Items already played on Emby are left alone, and nothing is ever marked unplayed.
+- If the same title exists in more than one Emby library, every copy is marked.
+- Trakt items that aren't in your Emby library are written to `data/unmatched_trakt_to_emby.yaml`.
+
+Options:
+- `--content [movies|episodes|all]` - What to sync (default: all)
+- `--dry-run` - Show what would be marked without changing Emby
+- `--verbose` - List every item
 
 ### `emby-sync status`
 Shows sync statistics: total items, movies, episodes, last sync time, Trakt connection status, and unmatched item count.
