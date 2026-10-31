@@ -86,10 +86,20 @@ def _build_index(items: List[dict]) -> Dict[Tuple[str, str], List[dict]]:
 
 
 def _lookup(index: Dict[Tuple[str, str], List[dict]], ids: dict) -> List[dict]:
+    """Return every Emby item matching any of the Trakt IDs, deduplicated."""
+    found: Dict[str, dict] = {}
     for key in _keys_for_trakt(ids):
-        if key in index:
-            return index[key]
-    return []
+        for item in index.get(key, []):
+            found.setdefault(item["Id"], item)
+    return list(found.values())
+
+
+def _later(a: Optional[datetime], b: Optional[datetime]) -> Optional[datetime]:
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return max(a, b)
 
 
 def _is_played(item: dict) -> bool:
@@ -179,7 +189,8 @@ def build_pull_plan(
             )
             continue
 
-        seen_ids = set()
+        planned: Dict[str, PlannedPlay] = {}
+        skipped = set()
         for season in entry.get("seasons", []):
             season_number = season.get("number")
             for episode in season.get("episodes", []):
@@ -208,23 +219,28 @@ def build_pull_plan(
                     continue
 
                 for item in found:
-                    if item["Id"] in seen_ids:
+                    if item["Id"] in skipped:
                         continue
-                    seen_ids.add(item["Id"])
+                    existing = planned.get(item["Id"])
+                    if existing is not None:
+                        # Multi-episode file: keep the latest watch date.
+                        existing.watched_at = _later(existing.watched_at, watched_at)
+                        continue
                     if _is_played(item):
                         plan.already_played += 1
+                        skipped.add(item["Id"])
                         continue
-                    plan.to_mark.append(
-                        PlannedPlay(
-                            emby_id=item["Id"],
-                            title=item.get("Name") or "",
-                            item_type="episode",
-                            watched_at=watched_at,
-                            series_name=item.get("SeriesName") or show.get("title"),
-                            season_number=season_number,
-                            episode_number=episode_number,
-                        )
+                    play = PlannedPlay(
+                        emby_id=item["Id"],
+                        title=item.get("Name") or "",
+                        item_type="episode",
+                        watched_at=watched_at,
+                        series_name=item.get("SeriesName") or show.get("title"),
+                        season_number=season_number,
+                        episode_number=episode_number,
                     )
+                    planned[item["Id"]] = play
+                    plan.to_mark.append(play)
 
     return plan
 

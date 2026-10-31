@@ -122,6 +122,26 @@ class TestBuildPullPlan:
         episodes = [_episode("e12", "s1", 1, 1, end=2), _episode("e3", "s1", 1, 3)]
         plan = build_pull_plan([], TRAKT_SHOWS[:1], [], series, episodes)
         assert [p.emby_id for p in plan.to_mark] == ["e12", "e3"]
+        # Keeps the latest watch date of the episodes in the file (E02).
+        assert plan.to_mark[0].watched_at == datetime(2024, 6, 2, 10, 0, 0)
+
+    def test_copies_with_different_provider_ids_all_marked(self):
+        emby_movies = [
+            _movie("m-imdb", "Alpha", Imdb="tt001"),
+            _movie("m-tmdb", "Alpha", Tmdb="1"),
+            _movie("m-both", "Alpha", Imdb="tt001", Tmdb="1"),
+        ]
+        plan = build_pull_plan(TRAKT_MOVIES[:1], [], emby_movies, [], [])
+        assert sorted(p.emby_id for p in plan.to_mark) == ["m-both", "m-imdb", "m-tmdb"]
+
+    def test_episodes_from_every_matching_series(self):
+        series = [
+            {"Id": "s1", "Name": "Show", "ProviderIds": {"Tvdb": "500"}},
+            {"Id": "s2", "Name": "Show", "ProviderIds": {"Imdb": "tt500"}},
+        ]
+        episodes = [_episode("a1", "s1", 1, 1), _episode("b1", "s2", 1, 1)]
+        plan = build_pull_plan([], TRAKT_SHOWS[:1], [], series, episodes)
+        assert sorted(p.emby_id for p in plan.to_mark) == ["a1", "b1"]
 
     def test_parse_trakt_date(self):
         assert parse_trakt_date("2024-01-02T03:04:05.000Z") == datetime(2024, 1, 2, 3, 4, 5)
